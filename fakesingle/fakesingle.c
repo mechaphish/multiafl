@@ -91,17 +91,31 @@ static void start_program(char *program, int program_i)
 
 int main(int argc, char **argv)
 {
-#ifdef HARDCODED_CBS
-    char* programs[] = {  "./bin/EAGLE_00004_1","./bin/EAGLE_00004_2","./bin/EAGLE_00004_3" };
-    int program_count = sizeof(programs)/sizeof(programs[0]);
-#else
-    if (argc == 1) {
-        fprintf(stderr, "Usage: %s cb1 [cb2] [...]\n", argv[0]);
-        exit(1);
+    int program_count = 0;
+    char **programs;
+    if (argc == 1 || getenv("FORCE_CB_ENV") != NULL) {
+        // Try to get the names from CB_1, CB_2, etc.
+        programs = malloc(50*sizeof(char*));
+        for (int i = 1; i <= 50; i++)
+            programs[i-1] = NULL;
+        for (int i = 1; i <= 50; i++) {
+            char varname[10];
+            snprintf(varname, sizeof(varname), "CB_%d", i);
+            char *val = getenv(varname);
+            if (val != NULL) {
+                programs[i-1] = val;
+                program_count++;
+                DBG_PRINT("Using CB_%d = %s\n", i, val);
+            } else break;
+        }
+        if (program_count == 0) {
+            fprintf(stderr, "Usage: %s cb1 [cb2] [...]\n       CB_1=cb1 [CB_2=cb2] [...up to 50] [FORCE_CB_ENV=1] %s\n", argv[0], argv[0]);
+            exit(1);
+        }
+    } else {
+        program_count = argc - 1;
+        programs = argv + 1;
     }
-    int program_count = argc - 1;
-    char **programs = argv + 1;
-#endif
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
