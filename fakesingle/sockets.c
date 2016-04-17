@@ -1,4 +1,26 @@
-/* From service-launcher */
+/*
+* Handle TCP setup
+*
+* Copyright (C) 2014 - Brian Caswell <bmc@lungetech.com>
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+* THE SOFTWARE.
+*/
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -13,29 +35,8 @@
 #include "utils.h"
 #include "sockets.h"
 
-
-void close_saved_sockets(int *sockets) {
-    close(sockets[0]);
-    close(sockets[1]);
-}
-
-void reset_base_sockets(int *sockets) {
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    VERIFY(fcntl, sockets[0], F_DUPFD, STDIN_FILENO);
-    VERIFY(fcntl, sockets[1], F_DUPFD, STDOUT_FILENO);
-}
-
-void setup_connection(const int connection, int program_count, int *sockets) {
-
-    int last_fd = program_count * 2 + 3;
-
-    VERIFY_ASSN(sockets[0], fcntl, STDIN_FILENO, F_DUPFD, last_fd);
-    VERIFY_ASSN(sockets[1], fcntl, STDOUT_FILENO, F_DUPFD, last_fd + 1);
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-
-#ifdef DEBUG
+void null_stderr() {
+#ifndef DEBUG
        int dev_null = open("/dev/null", O_WRONLY);
 
        if (dev_null == -1)
@@ -46,9 +47,6 @@ void setup_connection(const int connection, int program_count, int *sockets) {
         stderr = fdopen(STDERR_FILENO, "w");
         close(dev_null);
 #endif
-
-    VERIFY(fcntl, connection, F_DUPFD, STDIN_FILENO);
-    VERIFY(fcntl, connection, F_DUPFD, STDOUT_FILENO);
 }
 
 void setup_sockpairs(const int program_count, int destination_fd) {
@@ -57,7 +55,7 @@ void setup_sockpairs(const int program_count, int destination_fd) {
 
     if (program_count > 1) {
 #ifdef DEBUG
-        fprintf(stderr, "opening %d socket pairs\n", program_count);
+        printf("opening %d socket pairs\n", program_count);
 #endif
 
         for (i = 0; i < program_count; i++) {
@@ -66,8 +64,8 @@ void setup_sockpairs(const int program_count, int destination_fd) {
 
             VERIFY(socketpair, AF_UNIX, SOCK_STREAM, 0, sockets);
 #ifdef DEBUG
-            fprintf(stderr, "opened %d and %d\n", sockets[0], sockets[1]);
-            fprintf(stderr, "putting on on %d and %d\n", destination_fd, destination_fd + 1);
+            printf("opened %d and %d\n", sockets[0], sockets[1]);
+            printf("putting on on %d and %d\n", destination_fd, destination_fd + 1);
 #endif
 
             if (sockets[0] != destination_fd)
@@ -107,3 +105,59 @@ void ready_pairwise(int pause_sockets[2]) {
     close(pause_sockets[0]);
 }
 
+void send_all(int fd, char *buf, const size_t size) {
+    ssize_t sent = 0;
+    size_t total_sent = 0;
+
+    while (total_sent < size) {
+        sent = send(fd, buf + total_sent, size - total_sent, 0);
+        if (sent <= 0)
+            err(-1, "send_all failed. got %zd\n", sent);
+
+        total_sent += sent;
+    }
+}
+
+size_t read_size(int fd, char *buf, const size_t size) {
+    ssize_t bytes_read = 0;
+    size_t total = 0;
+    size_t bytes_to_read = size;
+
+    while (bytes_to_read > 0) {
+        bytes_read = read(fd, buf + total, bytes_to_read);
+
+        if (bytes_read <= 0)
+            err(-1, "unable to read %zu bytes from %d", size, fd);
+
+        total += (size_t) bytes_read;
+        bytes_to_read = size - total;
+    }
+
+    return total;
+}
+
+uint32_t read_uint32_t(int fd) {
+    uint32_t value;
+    size_t read;
+
+    read = read_size(fd, (char *) &value, sizeof(value));
+    if (read != sizeof(value))
+        err(-1, "read uint32_t failed: Expected %u bytes, got %zu bytes", sizeof(value), read);
+
+    return value;
+}
+
+unsigned char * read_buffer(const int fd, const size_t size) {
+    unsigned char *buf;
+    size_t read;
+
+    buf = malloc(size);
+    if (!buf)
+        err(-1, "unable to allocate %u bytes\n", size);
+
+    read = read_size(fd, (void *) buf, size);
+    if (read != size)
+        err(-1, "read buffer failed: Expected %u bytes, got %zu bytes", size, read);
+
+    return buf;
+}

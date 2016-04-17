@@ -20,20 +20,10 @@
 * THE SOFTWARE.
 */
 
-#ifndef SOCKETS_H
-#define SOCKETS_H
+#ifndef RESOURCES_H
+#define RESOURCES_H
 
-#include <stdint.h>
-
-void null_stderr();
-void setup_sockpairs(int program_count, int destination_fd);
-void setup_pairwise_wait(int pause_sockets[2]);
-void ready_pairwise(int pause_sockets[2]);
-void wait_pairwise(int pause_sockets[2]);
-
-size_t read_size(int fd, char *buf, const size_t size);
-unsigned char * read_buffer(const int fd, const size_t size);
-uint32_t read_uint32_t(int fd);
-void send_all(int fd, char *buf, const size_t size);
+void set_core_size(int size);
+void set_cb_resources(/* char *wrapper */);
 
 #endif

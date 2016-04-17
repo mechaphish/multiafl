@@ -1,4 +1,6 @@
 /*
+* Setup process sandbox
+*
 * Copyright (C) 2014 - Brian Caswell <bmc@lungetech.com>
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,20 +22,26 @@
 * THE SOFTWARE.
 */
 
-#ifndef SOCKETS_H
-#define SOCKETS_H
+#include <stdlib.h>
+#include <sys/resource.h>
+#include <sys/prctl.h>
 
-#include <stdint.h>
+#include "resources.h"
+#include "utils.h"
 
-void null_stderr();
-void setup_sockpairs(int program_count, int destination_fd);
-void setup_pairwise_wait(int pause_sockets[2]);
-void ready_pairwise(int pause_sockets[2]);
-void wait_pairwise(int pause_sockets[2]);
+void set_cb_resources(/*char *wrapper*/) {
+//    struct rlimit rlim;
+//    rlim.rlim_cur = 0;
+//    rlim.rlim_max = 0;
 
-size_t read_size(int fd, char *buf, const size_t size);
-unsigned char * read_buffer(const int fd, const size_t size);
-uint32_t read_uint32_t(int fd);
-void send_all(int fd, char *buf, const size_t size);
+    VERIFY(prctl, PR_SET_DUMPABLE, 1, 0, 0, 0);
 
-#endif
+//    if (!wrapper)
+//        VERIFY(setrlimit, RLIMIT_NOFILE, &rlim);
+}
+
+void set_core_size(int size) {
+    struct rlimit rlim = {size, size};
+
+    VERIFY(setrlimit, RLIMIT_CORE, &rlim);
+}
