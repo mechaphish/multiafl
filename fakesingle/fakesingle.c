@@ -59,7 +59,7 @@ static void set_core_size(int size) {
 
 
 
-static void start_program(char *program, int program_i) {
+static void start_program(char *program, int program_i, int program_count) {
     unsetup_signals();
 
 #ifdef DEBUG
@@ -68,14 +68,14 @@ static void start_program(char *program, int program_i) {
 
     /* Modified to inherit environment, but fixed argv */
 #ifdef QEMU_PATH
-    char program_i_str[10];
+    char program_i_str[10], program_count_str[10]; // TODO: make faster?
     snprintf(program_i_str, 10, "%d", program_i);
-    VERIFY(execl, __STRING(QEMU_PATH), "multi-qemu", program, "--multicbnum", program_i_str, (char *) NULL);
+    snprintf(program_count_str, 10, "%d", program_count);
+    VERIFY(execl, __STRING(QEMU_PATH), "multi-qemu", program, "--multicb_i", program_i_str, "--multicb_tot", program_count_str, (char *) NULL);
 #else
-    char program_name[16];
-    snprintf(program_name, 16, "CB_%d from %d", program_i, getpid());
-    prctl(PR_SET_NAME, program_name, 0, 0, 0); // Tries to make top a bit more readable
+    VERIFY(prctl, PR_SET_DUMPABLE, 1, 0, 0, 0); // Won't necessarily create the core dump (use set_core_size)
     VERIFY(execl, program, program, (char *) NULL);
+    (void) program_i; (void) program_count;
 #endif
 }
 
@@ -102,8 +102,7 @@ static void handle(const int program_count, char **programs) {
             ready_pairwise(pause_sockets_1);
             wait_pairwise(pause_sockets_2);
 
-            VERIFY(prctl, PR_SET_DUMPABLE, 1, 0, 0, 0); // Won't necessarily create the core dump (use set_core_size)
-            start_program(programs[i], i);
+            start_program(programs[i], i, program_count);
             break;
         } else {
             wait_pairwise(pause_sockets_1);

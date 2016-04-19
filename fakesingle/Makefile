@@ -1,8 +1,8 @@
 C_FILES = fakesingle.c sockets.c signals.c
 
-CFLAGS := -DDEBUG
+#CFLAGS := -DDEBUG
 #CFLAGS := -DDEBUG -O3 -march=core2
-#CFLAGS := -O3 -march=core2
+CFLAGS := -O3 -march=core2
 CFLAGS += -m32 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
 
 # Allow for chroot(), as cb-test wants
