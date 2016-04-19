@@ -91,26 +91,26 @@ static void handle(const int program_count, char **programs) {
     num_children = program_count;
 
     for (i = 0; i < program_count; i++) {
-        int pause_sockets_1[2];
-        int pause_sockets_2[2];
-        setup_pairwise_wait(pause_sockets_1);
-        setup_pairwise_wait(pause_sockets_2);
+        //int pause_sockets_1[2];
+        //int pause_sockets_2[2];
+        //setup_pairwise_wait(pause_sockets_1);
+        //setup_pairwise_wait(pause_sockets_2);
 
         VERIFY_ASSN(pid, fork);
 
         if (pid == 0) {
-            ready_pairwise(pause_sockets_1);
-            wait_pairwise(pause_sockets_2);
+            //ready_pairwise(pause_sockets_1);
+            //wait_pairwise(pause_sockets_2);
 
             start_program(programs[i], i, program_count);
             break;
         } else {
-            wait_pairwise(pause_sockets_1);
+            //wait_pairwise(pause_sockets_1);
 
             //if (wrapper == NULL && no_attach_flag == 0)
             //    setup_ptrace(pid);
 
-            ready_pairwise(pause_sockets_2);
+            //ready_pairwise(pause_sockets_2);
 
             //if (wrapper == NULL && no_attach_flag == 0)
             //    continue_ptrace(pid);
