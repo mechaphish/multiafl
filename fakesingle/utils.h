@@ -43,15 +43,4 @@
 #define VERIFY_EXP(expression) do { if (!(expression)) err(-1, "unable to verify " #expression DEBUG_LINE); } while (0);
 #define VERIFY_ASSN(ret, func, args...) do { if( (ret = func(args)) < 0) err(-1, "unable to call " #func DEBUG_LINE); } while (0);
 
-/* sigh.  stdio.h wraps this in an ifdef that is semi-broken, but the symbol does exist in glibc... */
-extern int asprintf (char **__restrict __ptr, __const char *__restrict __fmt, ...);
-
-void get_random(char *buf, unsigned int size);
-int is_executable(const char *path);
-unsigned long str_to_ulong(const char *s);
-unsigned short str_to_ushort(const char *s);
-char * get_prng_seed();
-char * set_prng_seed(const unsigned char *buf, const size_t size);
-void print_hash(const unsigned char *hash, const size_t hash_len);
-
 #endif

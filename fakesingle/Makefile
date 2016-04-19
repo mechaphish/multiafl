@@ -1,4 +1,8 @@
+C_FILES = fakesingle.c sockets.c signals.c
+
 CFLAGS := -DDEBUG
+#CFLAGS := -DDEBUG -O3 -march=core2
+#CFLAGS := -O3 -march=core2
 CFLAGS += -m32 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
 
 # Allow for chroot(), as cb-test wants
@@ -11,19 +15,19 @@ EXAMPLES_DIR := /usr/share/cgc-challenges
 
 all: fakesingle fakesingle_qemu hardcoded_CADET_00003 hardcoded_LUNGE_00005 hardcoded_EAGLE_00004
 
-fakesingle: fakesingle.c sockets.c signals.c utils.c resources.c
+fakesingle: $(C_FILES)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
-fakesingle_qemu: fakesingle.c sockets.c signals.c utils.c resources.c
+fakesingle_qemu:  $(C_FILES)
 	$(CC) -DQEMU_PATH='$(QEMU_PATH)' $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
 
 
-hardcoded_CADET_00003: fakesingle.c sockets.c signals.c utils.c resources.c
+hardcoded_CADET_00003: $(C_FILES)
 	[ -x ./CADET_00003 ]
 	$(CC) -DHARDCODED_CBS='"./CADET_00003"' $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
-hardcoded_LUNGE_00005: fakesingle.c sockets.c signals.c utils.c resources.c
+hardcoded_LUNGE_00005: $(C_FILES)
 	[ -x ./LUNGE_00005_1 ]
 	$(CC) -DHARDCODED_CBS='"./LUNGE_00005_1", "./LUNGE_00005_2", "./LUNGE_00005_3", "./LUNGE_00005_4", "./LUNGE_00005_5", "./LUNGE_00005_6"' $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
-hardcoded_EAGLE_00004: fakesingle.c sockets.c signals.c utils.c resources.c
+hardcoded_EAGLE_00004: $(C_FILES)
 	[ -x ./EAGLE_00004_1 ]
 	$(CC) -DHARDCODED_CBS='"./EAGLE_00004_1", "./EAGLE_00004_2", "./EAGLE_00004_3"' $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
 

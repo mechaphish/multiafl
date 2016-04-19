@@ -1,5 +1,7 @@
 /*
-* Launch a Challenge Binary
+ * Adapted from service-launcher.
+ *
+ * Original copyright:
 *
 * Copyright (C) 2014 - Brian Caswell <bmc@lungetech.com>
 *
@@ -23,6 +25,9 @@
 */
 
 #include <sys/types.h>
+#include <sys/time.h>
+#include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <stdint.h>
 #include <errno.h>
@@ -34,7 +39,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "resources.h"
 #include "signals.h"
 #include "sockets.h"
 #include "utils.h"
@@ -46,11 +50,20 @@ int monitor_process;
 
 volatile unsigned long num_children;
 
+
+static void set_core_size(int size) {
+    // Was in resources.c
+    struct rlimit rlim = {size, size};
+    VERIFY(setrlimit, RLIMIT_CORE, &rlim);
+}
+
+
+
 static void start_program(char *program, int program_i) {
     unsetup_signals();
 
 #ifdef DEBUG
-    dprintf(STDERR_FILENO, "pid=%d is_executable=%d program=%s\n", getpid(), is_executable(program), program);
+    dprintf(STDERR_FILENO, "pid=%d CB_%d program=%s\n", getpid(), program_i, program);
 #endif
 
     /* Modified to inherit environment, but fixed argv */
@@ -59,23 +72,21 @@ static void start_program(char *program, int program_i) {
     snprintf(program_i_str, 10, "%d", program_i);
     VERIFY(execl, __STRING(QEMU_PATH), "multi-qemu", program, "--multicbnum", program_i_str, (char *) NULL);
 #else
+    char program_name[16];
+    snprintf(program_name, 16, "CB_%d from %d", program_i, getpid());
+    prctl(PR_SET_NAME, program_name, 0, 0, 0); // Tries to make top a bit more readable
     VERIFY(execl, program, program, (char *) NULL);
-    (void) program_i;
 #endif
 }
 
 static void handle(const int program_count, char **programs) {
     int i;
-    //int saved_sockets[2];
     pid_t pid;
     monitor_process = 1;
 
-    //setup_connection(/*connection,*/ program_count, saved_sockets);
     null_stderr(); // Only remaining part of setup_connection
 
     setup_sockpairs(program_count, STDERR_FILENO + 1);
-
-    //setup_sandbox();
 
     num_children = program_count;
 
@@ -91,8 +102,7 @@ static void handle(const int program_count, char **programs) {
             ready_pairwise(pause_sockets_1);
             wait_pairwise(pause_sockets_2);
 
-            //close_saved_sockets(saved_sockets);
-            set_cb_resources(/*wrapper*/);
+            VERIFY(prctl, PR_SET_DUMPABLE, 1, 0, 0, 0); // Won't necessarily create the core dump (use set_core_size)
             start_program(programs[i], i);
             break;
         } else {
@@ -108,8 +118,6 @@ static void handle(const int program_count, char **programs) {
         }
     }
 
-    //reset_base_sockets(saved_sockets);
-        
     while (num_children > 0)
         wait_for_signal();
 
