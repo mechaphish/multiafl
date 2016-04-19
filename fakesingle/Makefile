@@ -13,7 +13,7 @@ CFLAGS += -m32 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
 QEMU_PATH := ./multi-qemu
 EXAMPLES_DIR := /usr/share/cgc-challenges
 
-all: fakesingle fakesingle_qemu hardcoded_CADET_00003 hardcoded_LUNGE_00005 hardcoded_EAGLE_00004
+all: fakesingle fakesingle_qemu hardcoded_CADET_00003 hardcoded_LUNGE_00005 hardcoded_EAGLE_00004 hardcoded_NRFIN_00006
 
 fakesingle: $(C_FILES)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
@@ -32,6 +32,11 @@ hardcoded_EAGLE_00004: $(C_FILES)
 	$(CC) -DHARDCODED_CBS='"./EAGLE_00004_1", "./EAGLE_00004_2", "./EAGLE_00004_3"' $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
 
 
+hardcoded_NRFIN_00006: $(C_FILES)
+	[ -x ./NRFIN_00006_1 ]
+	$(CC) -DHARDCODED_CBS='"./NRFIN_00006_1", "./NRFIN_00006_2", "./NRFIN_00006_3", "./NRFIN_00006_4", "./NRFIN_00006_5", "./NRFIN_00006_6"' $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
+
+
 .PHONY: clean all check install
 clean:
 	-rm -f fakesingle fakesingle_qemu hardcoded_*
@@ -46,4 +51,7 @@ check: all
 	! PATH=".:$$PATH" cb-test --negotiate --cb hardcoded_LUNGE_00005 --directory "$(CURDIR)" --xml_dir "$(EXAMPLES_DIR)/LUNGE_00005/poller/for-release/" --wrapper /usr/bin/env | egrep 'failed[^0-9]+[1-9]+'
 	[ -f "$(EXAMPLES_DIR)/EAGLE_00004/poller/for-release/POLL_00000.xml" ]
 	! PATH=".:$$PATH" cb-test --negotiate --cb hardcoded_EAGLE_00004 --directory "$(CURDIR)" --xml_dir "$(EXAMPLES_DIR)/EAGLE_00004/poller/for-release/" --wrapper /usr/bin/env | egrep 'failed[^0-9]+[1-9]+'
+	@echo "Testing on a CQE challenge set"
+	[ -f "../../../samples/cqe-challenges/NRFIN_00006/poller/for-release/GEN_00000.xml" ]
+	! PATH=".:$$PATH" cb-test --cb hardcoded_NRFIN_00006 --directory "$(CURDIR)" --xml_dir "../../../samples/cqe-challenges/NRFIN_00006/poller/for-release/" --wrapper /usr/bin/env | egrep 'failed[^0-9]+[1-9]+'
 	@echo "All tests passed :)"
