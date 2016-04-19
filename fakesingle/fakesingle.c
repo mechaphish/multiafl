@@ -108,12 +108,12 @@ static void handle(const int program_count, char **programs) {
             wait_pairwise(pause_sockets_1);
 
             //if (wrapper == NULL && no_attach_flag == 0)
-                setup_ptrace(pid);
+            //    setup_ptrace(pid);
 
             ready_pairwise(pause_sockets_2);
 
             //if (wrapper == NULL && no_attach_flag == 0)
-                continue_ptrace(pid);
+            //    continue_ptrace(pid);
         }
     }
 

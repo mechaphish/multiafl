@@ -203,6 +203,7 @@ void continue_ptrace(pid_t pid) {
 
 static void print_registers(pid_t pid) {
     /* TODO: sync with Salls and co. in how to communicate the crash info */
+    return;
 
     int res;
     struct user_regs_struct registers;
