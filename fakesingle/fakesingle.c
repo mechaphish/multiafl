@@ -59,13 +59,10 @@ static void set_core_size(int size) {
 
 
 
-static void start_program(char *program, int program_i, int program_count) {
+static void start_program(const char *program, int program_i, int program_count) {
     unsetup_signals();
 
-#ifdef DEBUG
-    dprintf(STDERR_FILENO, "pid=%d CB_%d program=%s\n", getpid(), program_i, program);
-#endif
-
+    DBG_PRINTF("pid=%d CB_%d program=%s\n", getpid(), program_i, program);
     /* Modified to inherit environment, but fixed argv */
 #ifdef QEMU_PATH
     char program_i_str[10], program_count_str[10]; // TODO: make faster?
@@ -79,7 +76,7 @@ static void start_program(char *program, int program_i, int program_count) {
 #endif
 }
 
-static void handle(const int program_count, char **programs) {
+static void handle(const int program_count, const char **programs) {
     int i;
     pid_t pid;
     monitor_process = 1;
@@ -134,50 +131,43 @@ int main(int argc, char **argv) {
     int i;
     num_children = 0;
 
-
+    //// Keep in sync with fakeforksrv.c 
+    int program_count;
+    const char **programs;
 #ifdef HARDCODED_CBS
+    DBG_PRINTF("Using HARDCODED_CBS, ignoring argc/argv\n"); (void) argc; (void) argv;
     const char *hardcoded_cbs[] = { HARDCODED_CBS };
-    argc = sizeof(hardcoded_cbs)/sizeof(const char*);
-    argv = malloc((1+argc)*sizeof(char*));
-    for (i = 0; i < argc; i++)
-        argv[i] = strdup(hardcoded_cbs[i]);
-    argv[argc] = NULL; /* Just to be safe */
-# ifdef DEBUG
-    dprintf(STDERR_FILENO, "Using %d HARDCODED_CBS:\n", argc);
-    for (i = 0; i < argc; i++)
-        dprintf(STDERR_FILENO, "  Hardcoded CB %d: %s\n", i+1, argv[i]);
-# endif
+    program_count = sizeof(hardcoded_cbs)/sizeof(const char*);
+    programs = hardcoded_cbs;
 #else
-    char *cbs_from_env[50];
+    const char *cbs_from_env[50];
     int cbs_from_env_count = 0;
     if (argc == 1 || getenv("FORCE_CB_ENV") != NULL) {
-        // Try to get the names from CB_1, CB_2, etc.
-        // Turns them into argc/argv, same as getting them as arguments
-        for (i = 1; i <= 50; i++) {
+        DBG_PRINTF("Getting CBs from env vars CB_0, CB_1, ...\n");
+        for (int i = 0; i < 50; i++) {
             char varname[10];
             snprintf(varname, sizeof(varname), "CB_%d", i);
-            char *val = getenv(varname);
+            const char *val = getenv(varname);
             if (val != NULL) {
-                cbs_from_env[i-1] = val;
+                cbs_from_env[i] = val;
                 cbs_from_env_count++;
-#ifdef DEBUG
-                dprintf(STDERR_FILENO, "Taking CB_%d='%s'\n", i, val);
-#endif
             } else break;
         }
         if (cbs_from_env_count > 0) {
-            argc = cbs_from_env_count;
-            argv = cbs_from_env;
-            argv[argc] = NULL;
+            program_count = cbs_from_env_count;
+            programs = cbs_from_env;
         } else {
-            fprintf(stderr, "Usage: %s cb1 [cb2] [...]\n       CB_1=cb1 [CB_2=cb2] [...up to 50] [FORCE_CB_ENV=1] %s\n", argv[0], argv[0]);
+            fprintf(stderr, "Usage: %s cb0 [cb1] [...]\n       CB_0=cb0 [CB_1=cb1] [...up to 50] [FORCE_CB_ENV=1] %s\n", argv[0], argv[0]);
             exit(1);
         }
     } else {
-        argc -= 1;
-        argv += 1;
+        program_count = argc - 1;
+        programs = (const char **) argv + 1;
     }
 #endif
+    DBG_PRINTF("Running %d CBs:", program_count);
+    for (i = 0; i < program_count; i++)
+        DBG_PRINTF("   CB_%d = %s\n", i, programs[i]);
 
     if (core_size != -1)
         set_core_size(core_size);
@@ -191,10 +181,8 @@ int main(int argc, char **argv) {
     num_children++;
 
     exit_val = 0;
-    handle(argc, argv);
-#ifdef DEBUG
-    dprintf(STDERR_FILENO, "WEIRD: fakesingle should not return from handle!");
-#endif
+    handle(program_count, programs);
+    DBG_PRINTF("WEIRD: fakesingle should not return from handle!\n");
 
     // Not sure why repeated
     handle_blocked_children();

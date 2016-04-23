@@ -116,6 +116,8 @@ static inline abi_ulong limit_to_my_map(abi_ulong map_offset)
     // split the map keeping it page-aligned
     // TODO: Align to more? 16k?
     //       (Sync with the debug print below)
+    assert(multicb_i != -1);
+    assert(multicb_count != -1);
     abi_ulong pages_per_cb = MAP_SIZE / 4096 / multicb_count;
     abi_ulong bytes_per_cb = pages_per_cb * 4096;
     abi_ulong mystart = multicb_i * bytes_per_cb;
@@ -182,6 +184,9 @@ static void afl_forkserver(CPUArchState *env) {
   uint32_t hello = 0xC6CAF1F5; // ADDED: Sanity check that it's actually our multi-CB QEMU /////
   if (write(FORKSRV_FD + 1, &hello, 4) != 4)
       err(-90, "I want to run as a forkserver");
+
+  if ((multicb_i == -1) || (multicb_count == -1))
+      err(-90, "No --multicb_i or --multicb_count argument?");
 
 #if defined(DEBUG) || defined(DEBUG_MULTICB)
   fprintf(stderr, "Running as multi-CB forkserver, CB_%d (%d of %d)", multicb_i, multicb_i+1, multicb_count); 

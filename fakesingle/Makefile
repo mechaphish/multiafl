@@ -3,22 +3,19 @@ C_FILES = fakesingle.c sockets.c signals.c
 #CFLAGS := -DDEBUG
 #CFLAGS := -DDEBUG -O3 -march=core2
 CFLAGS := -O3 -march=core2
-CFLAGS += -m32 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
+CFLAGS += -m32 -std=gnu99 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
 
 # Allow for chroot(), as cb-test wants
 # Note: also reason for ./xxx paths below
 #CFLAGS += -static
 
 
-QEMU_PATH := ./multi-qemu
 EXAMPLES_DIR := /usr/share/cgc-challenges
 
-all: fakesingle fakesingle_qemu hardcoded_CADET_00003 hardcoded_LUNGE_00005 hardcoded_EAGLE_00004 hardcoded_NRFIN_00006
+all: fakesingle hardcoded_CADET_00003 hardcoded_LUNGE_00005 hardcoded_EAGLE_00004 hardcoded_NRFIN_00006
 
 fakesingle: $(C_FILES)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
-fakesingle_qemu:  $(C_FILES)
-	$(CC) -DQEMU_PATH='$(QEMU_PATH)' $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
 
 
 hardcoded_CADET_00003: $(C_FILES)
@@ -39,7 +36,7 @@ hardcoded_NRFIN_00006: $(C_FILES)
 
 .PHONY: clean all check install
 clean:
-	-rm -f fakesingle fakesingle_qemu hardcoded_*
+	-rm -f fakesingle hardcoded_*
 
 check: all
 	@echo "Testing as wrapper on a single binary"

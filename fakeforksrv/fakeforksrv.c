@@ -34,8 +34,8 @@ static void sigchld_from_forksrv(int sig, siginfo_t *info, void *ctx)
     //       So I treat them as a fatal failure of the entire thing
     //       (restart the entire thing if desired.)
     assert(sig == SIGCHLD);
-    fprintf(stderr, "QEMU forkserver died (pid %d), killing the entire process group.\n", info->si_pid);
-    fprintf(stderr, "   %s %d\n", (info->si_code == CLD_EXITED) ? "exit()ed with status" : (info->si_code == CLD_KILLED) ? "killed by signal" : "UNEXPECTED si_code! si_status =", info->si_status);
+    fprintf(stderr, "!!! QEMU forkserver died (pid %d), killing the entire process group !!!\n", info->si_pid);
+    fprintf(stderr, "  The QEMU forkserver %s %d\n", (info->si_code == CLD_EXITED) ? "exit()ed with status" : (info->si_code == CLD_KILLED) ? "killed by signal" : "UNEXPECTED si_code! si_status =", info->si_status);
     (void) ctx;
 
     // Prevent zombies
@@ -51,54 +51,48 @@ int main(int argc, char **argv)
 {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     //
-    // 0. Find the CBs.
+    // 0. Find the CBs. Note: Counts them 0-based, differently from the sample Makefiles.
     //
     //    Borrowing from fakesingle
-    //    TODO: keep in sync
+    //    TODO: keep them in some sync.
     //
+    int program_count;
+    const char **programs;
+
 #ifdef HARDCODED_CBS
+    DBG_PRINTF("Using HARDCODED_CBS\n");
     const char *hardcoded_cbs[] = { HARDCODED_CBS };
-    argc = sizeof(hardcoded_cbs)/sizeof(const char*);
-    argv = malloc((1+argc)*sizeof(char*));
-    for (i = 0; i < argc; i++)
-        argv[i] = strdup(hardcoded_cbs[i]);
-    argv[argc] = NULL; /* Just to be safe */
-    DBG_PRINTF("Using %d HARDCODED_CBS:\n", argc);
-    for (i = 0; i < argc; i++)
-        DBG_PRINTF("  Hardcoded CB %d: %s\n", i+1, argv[i]);
+    program_count = sizeof(hardcoded_cbs)/sizeof(const char*);
+    programs = hardcoded_cbs;
 #else
-    char *cbs_from_env[50];
+    const char *cbs_from_env[50];
     int cbs_from_env_count = 0;
     if (argc == 1 || getenv("FORCE_CB_ENV") != NULL) {
-        // Try to get the names from CB_1, CB_2, etc.
-        // Turns them into argc/argv, same as getting them as arguments
-        for (int i = 1; i <= 50; i++) {
+        DBG_PRINTF("Getting CBs from env vars CB_0, CB_1, ...\n");
+        for (int i = 0; i < 50; i++) {
             char varname[10];
             snprintf(varname, sizeof(varname), "CB_%d", i);
-            char *val = getenv(varname);
+            const char *val = getenv(varname);
             if (val != NULL) {
-                cbs_from_env[i-1] = val;
+                cbs_from_env[i] = val;
                 cbs_from_env_count++;
-                DBG_PRINTF("Taking CB_%d='%s'\n", i, val);
             } else break;
         }
         if (cbs_from_env_count > 0) {
-            argc = cbs_from_env_count;
-            argv = cbs_from_env;
-            argv[argc] = NULL;
+            program_count = cbs_from_env_count;
+            programs = cbs_from_env;
         } else {
-            fprintf(stderr, "Usage: %s cb1 [cb2] [...]\n       CB_1=cb1 [CB_2=cb2] [...up to 50] [FORCE_CB_ENV=1] %s\n", argv[0], argv[0]);
+            fprintf(stderr, "Usage: %s cb0 [cb1] [...]\n       CB_0=cb0 [CB_1=cb1] [...up to 50] [FORCE_CB_ENV=1] %s\n", argv[0], argv[0]);
             exit(1);
         }
     } else {
-        argc -= 1;
-        argv += 1;
+        program_count = argc - 1;
+        programs = (const char **) argv + 1;
     }
 #endif
-
-    const int program_count = argc;
-    char **programs = argv;
-    V(program_count <= FD_SETSIZE);
+    DBG_PRINTF("fakeforksrv pid %d, running %d CBs:\n", getpid(), program_count);
+    for (int i = 0; i < program_count; i++)
+        DBG_PRINTF("   CB_%d = %s\n", i, programs[i]);
 
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -152,13 +146,15 @@ int main(int argc, char **argv)
             close(fdpassers[0]); close(fdpassers[1]);
 
             if (!getenv("LD_BIND_LAZY")) setenv("LD_BIND_NOW", "1", 0);
+
+            DBG_PRINTF("Launching the QEMU forkserver for CB_%d (%s) with pid %d\n", i, programs[i], getpid());
             
             // Note: SIGUSR2 remains ignored, the QEMU forkservers must also be immune to it
             snprintf(program_i_str, 10, "%d", i);
-            execl(__STRING(AFL_QEMU_PATH), "multicb-qemu",
-                    "--multicb_i", program_i_str, "--multicb_tot", program_count_str,
+            execl(MULTICB_QEMU_PATH, "multicb-qemu",
+                    "--multicb_i", program_i_str, "--multicb_count", program_count_str,
                     programs[i], (char *) NULL);
-            err(-2, "Could not exec qemu (forkserver) %s", __STRING(AFL_QEMU_PATH));
+            err(-2, "Could not exec qemu (forkserver) %s", MULTICB_QEMU_PATH);
         } else {
             close(ctl_pipe[0]); close(st_pipe[1]); close(fdpassers[0]);
             qemuforksrv_ctl_fd[i] = ctl_pipe[1];
@@ -169,7 +165,7 @@ int main(int argc, char **argv)
             if (read(qemuforksrv_st_fd[i], &msg, 4) != 4)
                 err(-20, "Could not read back from QEMU forkserver %d status pipe, something went wrong", i);
             V(msg == 0xC6CAF1F5); // Just as a sanity check
-            DBG_PRINTF("OK :)\n");
+            DBG_PRINTF("QEMU forkserver %d up :)\n", i);
         }
     }
 
@@ -203,14 +199,18 @@ int main(int argc, char **argv)
         msghdr.msg_controllen = cmsg->cmsg_len;
         for (int i = 0; i < program_count; i++)
             VE(sendmsg(qemuforksrv_fdpasser[i], &msghdr, 0) != -1);
+        
+        DBG_PRINTF("Sending fork() commands...\n");
+        for (int i = 0; i < program_count; i++)
+            VE(write(qemuforksrv_ctl_fd[i], &msg, 4) == 4);
 
         DBG_PRINTF("Waiting for QEMU forkservers fork() pid reports...\n");
         for (int i = 0; i < program_count; i++) {
-            VE(read(qemuforksrv_ctl_fd[i], &qemucb_pid[i], 4) == 4);
+            VE(read(qemuforksrv_st_fd[i], &qemucb_pid[i], 4) == 4);
             DBG_PRINTF("QEMU for CB_%d: pid %d...\n", i, qemucb_pid[i]);
         }
 
-        for (int i = 0; i < program_count; i++)
+        for (int i = 0; i < 2*program_count; i++)
             close(cbsockets[i]);
 
         // AFL can now proceed

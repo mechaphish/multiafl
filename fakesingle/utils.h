@@ -43,4 +43,11 @@
 #define VERIFY_EXP(expression) do { if (!(expression)) err(-1, "unable to verify " #expression DEBUG_LINE); } while (0);
 #define VERIFY_ASSN(ret, func, args...) do { if( (ret = func(args)) < 0) err(-1, "unable to call " #func DEBUG_LINE); } while (0);
 
+// Makes debug prints shorter to type :)
+#ifdef DEBUG
+# define DBG_PRINTF(...) fprintf(stderr, __VA_ARGS__)
+#else
+# define DBG_PRINTF(...) do { ; } while(0)
+#endif
+
 #endif

@@ -95,7 +95,8 @@ echo "[*] Configuring QEMU..."
 
 cd $QEMU_DIR || exit 1
 
-./cgc_configure_opt
+#./cgc_configure_opt
+./cgc_configure_debug
 
 echo "[+] Configuration complete."
 
