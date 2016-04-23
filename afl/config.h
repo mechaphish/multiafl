@@ -307,7 +307,11 @@
    problems with complex programs). You need to recompile the target binary
    after changing this - otherwise, SEGVs may ensue. */
 
-#define MAP_SIZE_POW2       16
+/* MULTI-CB CHANGE: Let's try with 18 = 256K.
+ *                  The QEMUs will "split" this among themselves (limit_to_my_map)
+ *                  (Note that they run in parallel!)
+ * TODO: This may be too bad for the CPU cache! Would need to check. */
+#define MAP_SIZE_POW2       18
 #define MAP_SIZE            (1 << MAP_SIZE_POW2)
 
 /* Maximum allocator request size (keep well under INT_MAX): */

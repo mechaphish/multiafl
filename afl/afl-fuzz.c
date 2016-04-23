@@ -6539,8 +6539,8 @@ static void handle_stop_sig(int sig) {
 
   stop_soon = 1; 
 
-  if (child_pid > 0) kill(child_pid, SIGKILL);
-  if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
+  if (child_pid > 0) kill(-child_pid, SIGKILL);
+  if (forksrv_pid > 0) kill(-forksrv_pid, SIGKILL);
 
 }
 
@@ -6560,12 +6560,12 @@ static void handle_timeout(int sig) {
   if (child_pid > 0) {
 
     child_timed_out = 1; 
-    kill(child_pid, SIGKILL);
+    kill(-child_pid, SIGKILL);
 
   } else if (child_pid == -1 && forksrv_pid > 0) {
 
     child_timed_out = 1; 
-    kill(forksrv_pid, SIGKILL);
+    kill(-forksrv_pid, SIGKILL);
 
   }
 

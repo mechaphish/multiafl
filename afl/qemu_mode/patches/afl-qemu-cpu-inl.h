@@ -26,6 +26,9 @@
 
  */
 
+#include <assert.h>
+#include <err.h>
+#include <sys/socket.h>
 #include <sys/shm.h>
 #include "../../config.h"
 
@@ -72,7 +75,6 @@ abi_ulong afl_entry_point, /* ELF entry point (_start) */
 /* Set in the child process in forkserver mode: */
 
 static unsigned char afl_fork_child;
-unsigned int afl_forksrv_pid;
 
 /* Instrumentation ratio: */
 
@@ -103,6 +105,22 @@ struct afl_tsl {
 /*************************
  * ACTUAL IMPLEMENTATION *
  *************************/
+
+
+// ADDED: Split map so multiple can run concurrently ////////////////////////////////
+extern int multicb_i, multicb_count;
+static inline abi_ulong limit_to_my_map(abi_ulong map_offset)
+{
+    // Given MAP_SIZE_POW2       originally 16, maybe 18
+    //    so MAP_SIZE            (1 << MAP_SIZE_POW2)
+    // split the map keeping it page-aligned
+    // TODO: Align to more? 16k?
+    //       (Sync with the debug print below)
+    abi_ulong pages_per_cb = MAP_SIZE / 4096 / multicb_count;
+    abi_ulong bytes_per_cb = pages_per_cb * 4096;
+    abi_ulong mystart = multicb_i * bytes_per_cb;
+    return mystart + (map_offset % bytes_per_cb);
+}
 
 
 /* Set up SHM region and initialize other stuff. */
@@ -160,12 +178,24 @@ static void afl_forkserver(CPUArchState *env) {
 
   if (!afl_area_ptr) return;
 
-  /* Tell the parent that we're alive. If the parent doesn't want
-     to talk, assume that we're not running in forkserver mode. */
 
-  if (write(FORKSRV_FD + 1, tmp, 4) != 4) return;
+  uint32_t hello = 0xC6CAF1F5; // ADDED: Sanity check that it's actually our multi-CB QEMU /////
+  if (write(FORKSRV_FD + 1, &hello, 4) != 4)
+      err(-90, "I want to run as a forkserver");
 
-  afl_forksrv_pid = getpid();
+#if defined(DEBUG) || defined(DEBUG_MULTICB)
+  fprintf(stderr, "Running as multi-CB forkserver, CB_%d (%d of %d)", multicb_i, multicb_i+1, multicb_count); 
+  {
+      abi_ulong pages_per_cb = MAP_SIZE / 4096 / multicb_count; // Sync with above
+      abi_ulong mystart = limit_to_my_map(0);
+      fprintf(stderr, "Will use %u/%u pages of the bitmap [%#x,%#x]", pages_per_cb, MAP_SIZE/4096, mystart, mystart-1+4096*pages_per_cb);
+      assert((MAP_SIZE % 4096) == 0);
+      assert((mystart % 4096) == 0);
+      assert(limit_to_my_map(4096*pages_per_cb) == limit_to_my_map(0));
+      assert(limit_to_my_map(4096*pages_per_cb+1) == limit_to_my_map(1));
+      assert(limit_to_my_map(4096*pages_per_cb-1) == (limit_to_my_map(0)-1+4096*pages_per_cb));
+  }
+#endif
 
   /* All right, let's await orders... */
 
@@ -177,6 +207,30 @@ static void afl_forkserver(CPUArchState *env) {
     /* Whoops, parent dead? */
 
     if (read(FORKSRV_FD, tmp, 4) != 4) exit(2);
+
+    // ADDED: Get the multi-CB socketpairs //////////////////////////////////////////
+    const int FDPASSER_FD = FORKSRV_FD - 2;
+    const size_t num_fds = 2*multicb_count;
+    struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)*num_fds));
+    struct msghdr msghdr = {0};
+    msghdr.msg_control = cmsg;
+    msghdr.msg_controllen = CMSG_SPACE(sizeof(int)*num_fds);
+    if (recvmsg(FDPASSER_FD, &msghdr, 0) != 0)
+      err(-9, "recvmsg from FDPASSER_FD");
+    if (cmsg->cmsg_type != SCM_RIGHTS)
+      err(-10, "Unexpected control message");
+    if (msghdr.msg_controllen != CMSG_LEN(sizeof(int)*num_fds))
+      err(-11, "Unexpected number of socketpair fds passed");
+    const int* cbsockets = (const int *) CMSG_DATA(cmsg);
+    for (int i = 0; i < num_fds; i++) { // Turn them into the right fd number
+      // TODO: check file descriptor is not valid?
+      if ((fcntl(3+i, F_GETFD) != -1) || (errno != EBADF))
+          err(-12, "File descriptor %d was already open! I need it for multi-CB socketpairs.", 3+i);
+      if (dup2(cbsockets[i], 3+i) == -1)
+          err(-13, "Failed to dup2 to the CB fd %d", 3+i);
+      close(cbsockets[i]);
+    }
+
 
     /* Establish a channel with child to grab translation commands. We'll 
        read from t_fd[0], child will write to TSL_FD. */
@@ -190,6 +244,9 @@ static void afl_forkserver(CPUArchState *env) {
     if (!child_pid) {
 
       /* Child process. Close descriptors and run free. */
+      
+      signal(SIGUSR2, SIG_DFL); // ADDED: used to kill only CB-running QEMUs ////////
+      close(FDPASSER_FD);       // ADDED: child won't need this anymore /////////////
 
       afl_fork_child = 1;
       close(FORKSRV_FD);
@@ -202,6 +259,8 @@ static void afl_forkserver(CPUArchState *env) {
     /* Parent. */
 
     close(TSL_FD);
+    for (int i = 0; i < num_fds; i++) // ADDED: new children will need new ones /////
+        close(3+i);
 
     if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) exit(5);
 
@@ -243,8 +302,9 @@ static inline void afl_maybe_log(abi_ulong cur_loc) {
 
   if (cur_loc >= afl_inst_rms) return;
 
-  afl_area_ptr[cur_loc ^ prev_loc]++;
-  prev_loc = cur_loc >> 1;
+  // ADDED: limit_to_my_map
+  afl_area_ptr[limit_to_my_map(cur_loc ^ prev_loc)]++;
+  prev_loc = limit_to_my_map(cur_loc >> 1);
 
 }
 
