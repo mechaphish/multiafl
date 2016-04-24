@@ -216,15 +216,6 @@ static void afl_forkserver(CPUArchState *env) {
     if (read(FORKSRV_FD, tmp, 4) != 4) exit(2);
 
     // ADDED: Get the multi-CB socketpairs //////////////////////////////////////////
-    for (int i = 0; i < 2*multicb_count; i++) {
-        errno = 0;
-        if ((fcntl(3+i, F_GETFD) != -1) || (errno != EBADF)) {
-            warn("Even before getting messagess, FD %d was open!!!, errno, if any", 3+i);
-            char lscmd[255]; sprintf(lscmd, "ls -l /proc/%d/fd/ >&2", getpid()); system(lscmd);
-            exit(12);
-        }
-    }
-
     const int FDPASSER_FD = FORKSRV_FD - 2;
     const size_t num_fds = 2*multicb_count;
     struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)*num_fds));
@@ -239,30 +230,21 @@ static void afl_forkserver(CPUArchState *env) {
       err(-11, "Unexpected number of socketpair fds passed");
     int* cbsockets = (int*) CMSG_DATA(cmsg);
     for (int i = 0; i < num_fds; i++) {
-        // The ones we get are often on the wrong fd number.
-        // So move them all out of the way...
+        // The fds we get can be on the wrong number...
+        if (cbsockets[i] == (3+1)) continue;
+        // ...so if wrong move them out of the way...
         int newfd = fcntl(cbsockets[i], F_DUPFD, 50+num_fds);
         if (newfd == -1)
             err(-14, "Could not F_DUPFD the %d-th passed fd (%d)! Maybe out of file descriptors?", i, cbsockets[i]);
         close(cbsockets[i]);
-        //fprintf(stderr, "Moved fd %d to %d\n", cbsockets[i], newfd);
         cbsockets[i] = newfd;
     }
     for (int i = 0; i < num_fds; i++) {
-        errno = 0;
-        if ((fcntl(3+i, F_GETFD) != -1) || (errno != EBADF)) {
-            warn("Even after moving cbsockets, FD %d was open!!!, errno, if any", 3+i);
-            char lscmd[255]; sprintf(lscmd, "ls -l /proc/%d/fd/%d >&2", getpid(), 3+1); system(lscmd);
-            exit(-12);
-        }
-    }
-    // ...and then turn them into the right ones
-    for (int i = 0; i < num_fds; i++) { // Try to turn them into the right fd number
-      assert(cbsockets[i] != (3+i));
+      if (cbsockets[i] == (3+i)) continue;
+      // ...and then dup to the right one
       int newfd = fcntl(cbsockets[i], F_DUPFD, 3+i);
       if (newfd != (3+i)) {
-        warn("Could not set file descriptor %d, probably it was already open! (ls -l /proc/me/fd follows) I need it for multi-CB socketpairs. fcntl() = %d, errno, if any, was", 3+i, newfd);
-        char lscmd[255]; sprintf(lscmd, "ls -l /proc/%d/fd/ >&2", getpid()); system(lscmd);
+        warn("Could not set file descriptor %d, probably it was already open! I need it for multi-CB socketpairs. fcntl() = %d, errno, if any, was", 3+i, newfd);
         exit(-12);
       }
       close(cbsockets[i]);

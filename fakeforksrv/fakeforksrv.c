@@ -144,6 +144,11 @@ int main(int argc, char *argv[])
             close(ctl_pipe[0]); close(ctl_pipe[1]);
             close(st_pipe[0]); close(st_pipe[1]);
             close(fdpassers[0]); close(fdpassers[1]);
+            for (int j = 0; j < i; j++) {
+                close(qemuforksrv_ctl_fd[j]);
+                close(qemuforksrv_st_fd[j]);
+                close(qemuforksrv_fdpasser[j]);
+            }
 
             if (!getenv("LD_BIND_LAZY")) setenv("LD_BIND_NOW", "1", 0);
 
@@ -153,7 +158,7 @@ int main(int argc, char *argv[])
             snprintf(program_i_str, 10, "%d", i);
             V(programs[i] != NULL);
             execl(
-#ifdef DEBUG
+#ifdef SPAWN_IN_GDB
                     "/usr/bin/xterm", "xterm-for-gdb", "-e", "gdb", "--args",
                     MULTICB_QEMU_PATH,
 #else
