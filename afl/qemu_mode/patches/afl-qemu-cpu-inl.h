@@ -152,7 +152,8 @@ static void afl_setup(void) {
     shm_id = atoi(id_str);
     afl_area_ptr = shmat(shm_id, NULL, 0);
 
-    if (afl_area_ptr == (void*)-1) exit(1);
+    if (afl_area_ptr == (void*)-1)
+        err(-20, "afl_area_ptr = shmat(shm_id = %d)", shm_id);
 
     /* With AFL_INST_RATIO set to a low value, we want to touch the bitmap
        so that the parent doesn't give up on us. */
@@ -178,7 +179,8 @@ static void afl_forkserver(CPUArchState *env) {
 
   static unsigned char tmp[4];
 
-  if (!afl_area_ptr) return;
+  //if (!afl_area_ptr)
+  //    errx(-20, "afl_area_ptr == NULL, unsupported!");
 
 
   uint32_t hello = 0xC6CAF1F5; // ADDED: Sanity check that it's actually our multi-CB QEMU /////
@@ -189,11 +191,11 @@ static void afl_forkserver(CPUArchState *env) {
       err(-90, "No --multicb_i or --multicb_count argument?");
 
 #if defined(DEBUG) || defined(DEBUG_MULTICB)
-  fprintf(stderr, "Running as multi-CB forkserver, CB_%d (%d of %d)", multicb_i, multicb_i+1, multicb_count); 
+  fprintf(stderr, "Running as multi-CB forkserver, CB_%d (%d of %d)\n", multicb_i, multicb_i+1, multicb_count); 
   {
       abi_ulong pages_per_cb = MAP_SIZE / 4096 / multicb_count; // Sync with above
       abi_ulong mystart = limit_to_my_map(0);
-      fprintf(stderr, "Will use %u/%u pages of the bitmap [%#x,%#x]", pages_per_cb, MAP_SIZE/4096, mystart, mystart-1+4096*pages_per_cb);
+      fprintf(stderr, "Will use %u/%u pages of the bitmap [%#x,%#x]\n", pages_per_cb, MAP_SIZE/4096, mystart, mystart-1+4096*pages_per_cb);
       assert((MAP_SIZE % 4096) == 0);
       assert((mystart % 4096) == 0);
       assert(limit_to_my_map(4096*pages_per_cb) == limit_to_my_map(0));
@@ -214,6 +216,15 @@ static void afl_forkserver(CPUArchState *env) {
     if (read(FORKSRV_FD, tmp, 4) != 4) exit(2);
 
     // ADDED: Get the multi-CB socketpairs //////////////////////////////////////////
+    for (int i = 0; i < 2*multicb_count; i++) {
+        errno = 0;
+        if ((fcntl(3+i, F_GETFD) != -1) || (errno != EBADF)) {
+            warn("Even before getting messagess, FD %d was open!!!, errno, if any", 3+i);
+            char lscmd[255]; sprintf(lscmd, "ls -l /proc/%d/fd/ >&2", getpid()); system(lscmd);
+            exit(12);
+        }
+    }
+
     const int FDPASSER_FD = FORKSRV_FD - 2;
     const size_t num_fds = 2*multicb_count;
     struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)*num_fds));
@@ -226,13 +237,34 @@ static void afl_forkserver(CPUArchState *env) {
       err(-10, "Unexpected control message");
     if (msghdr.msg_controllen != CMSG_LEN(sizeof(int)*num_fds))
       err(-11, "Unexpected number of socketpair fds passed");
-    const int* cbsockets = (const int *) CMSG_DATA(cmsg);
-    for (int i = 0; i < num_fds; i++) { // Turn them into the right fd number
-      // TODO: check file descriptor is not valid?
-      if ((fcntl(3+i, F_GETFD) != -1) || (errno != EBADF))
-          err(-12, "File descriptor %d was already open! I need it for multi-CB socketpairs.", 3+i);
-      if (dup2(cbsockets[i], 3+i) == -1)
-          err(-13, "Failed to dup2 to the CB fd %d", 3+i);
+    int* cbsockets = (int*) CMSG_DATA(cmsg);
+    for (int i = 0; i < num_fds; i++) {
+        // The ones we get are often on the wrong fd number.
+        // So move them all out of the way...
+        int newfd = fcntl(cbsockets[i], F_DUPFD, 50+num_fds);
+        if (newfd == -1)
+            err(-14, "Could not F_DUPFD the %d-th passed fd (%d)! Maybe out of file descriptors?", i, cbsockets[i]);
+        close(cbsockets[i]);
+        //fprintf(stderr, "Moved fd %d to %d\n", cbsockets[i], newfd);
+        cbsockets[i] = newfd;
+    }
+    for (int i = 0; i < num_fds; i++) {
+        errno = 0;
+        if ((fcntl(3+i, F_GETFD) != -1) || (errno != EBADF)) {
+            warn("Even after moving cbsockets, FD %d was open!!!, errno, if any", 3+i);
+            char lscmd[255]; sprintf(lscmd, "ls -l /proc/%d/fd/%d >&2", getpid(), 3+1); system(lscmd);
+            exit(-12);
+        }
+    }
+    // ...and then turn them into the right ones
+    for (int i = 0; i < num_fds; i++) { // Try to turn them into the right fd number
+      assert(cbsockets[i] != (3+i));
+      int newfd = fcntl(cbsockets[i], F_DUPFD, 3+i);
+      if (newfd != (3+i)) {
+        warn("Could not set file descriptor %d, probably it was already open! (ls -l /proc/me/fd follows) I need it for multi-CB socketpairs. fcntl() = %d, errno, if any, was", 3+i, newfd);
+        char lscmd[255]; sprintf(lscmd, "ls -l /proc/%d/fd/ >&2", getpid()); system(lscmd);
+        exit(-12);
+      }
       close(cbsockets[i]);
     }
 

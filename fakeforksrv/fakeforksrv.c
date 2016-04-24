@@ -23,7 +23,7 @@
 #define VE(x) if (unlikely(!(x))) err(-9, __FILE__ ":" VAL_TO_STR(__LINE__) " %s, it's not %s", __PRETTY_FUNCTION__, #x)
 
 #ifdef DEBUG
-# define DBG_PRINTF(...) fprintf(stderr, __VA_ARGS__)
+# define DBG_PRINTF(...) fprintf(stderr, "FAKEFORKSRV: "  __VA_ARGS__)
 #else
 # define DBG_PRINTF(...) do { ; } while(0)
 #endif
@@ -47,7 +47,7 @@ static void sigchld_from_forksrv(int sig, siginfo_t *info, void *ctx)
 }
 
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     //
@@ -151,9 +151,10 @@ int main(int argc, char **argv)
             
             // Note: SIGUSR2 remains ignored, the QEMU forkservers must also be immune to it
             snprintf(program_i_str, 10, "%d", i);
+            V(programs[i] != NULL);
             execl(MULTICB_QEMU_PATH, "multicb-qemu",
-                    "--multicb_i", program_i_str, "--multicb_count", program_count_str,
-                    programs[i], (char *) NULL);
+                    "-multicb_i", program_i_str, "-multicb_count", program_count_str,
+                    programs[i], NULL);
             err(-2, "Could not exec qemu (forkserver) %s", MULTICB_QEMU_PATH);
         } else {
             close(ctl_pipe[0]); close(st_pipe[1]); close(fdpassers[0]);
@@ -161,7 +162,7 @@ int main(int argc, char **argv)
             qemuforksrv_st_fd[i] = st_pipe[0];
             qemuforksrv_fdpasser[i] = fdpassers[1];
 
-            DBG_PRINTF("Waiting for QEMU forkserver %d to tell us that it's ready... ", i);
+            DBG_PRINTF("Waiting for QEMU forkserver %d to tell us that it's ready...\n", i);
             if (read(qemuforksrv_st_fd[i], &msg, 4) != 4)
                 err(-20, "Could not read back from QEMU forkserver %d status pipe, something went wrong", i);
             V(msg == 0xC6CAF1F5); // Just as a sanity check

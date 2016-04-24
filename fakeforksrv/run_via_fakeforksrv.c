@@ -109,26 +109,37 @@ int main(int argc, char **argv)
         if (read(st, &status, 4) != 4)
             err(-10, "Could not read the status report from fakeforksrv! errno, if not just exit");
 
-        if (WIFEXITED(status))
+        if (WIFEXITED(status)) {
             DBG_PRINTF("Regular exit(%d)\n", WEXITSTATUS(status));
-
-        signaled_count++;
-        V(WIFSIGNALED(status));
-        if (WTERMSIG(status) == SIGKILL) {
-            DBG_PRINTF("reported a SIGKILL!\n");
-        } else if (WTERMSIG(status) == SIGUSR2) {
-            DBG_PRINTF("!!! ERROR: reported a SIGUSR2! (should be hidden!)\n");
-        } else DBG_PRINTF("reported signal %d\n", WTERMSIG(status));
+        } else {
+            signaled_count++;
+            V(WIFSIGNALED(status));
+            if (WTERMSIG(status) == SIGKILL) {
+                DBG_PRINTF("reported a SIGKILL!\n");
+            } else if (WTERMSIG(status) == SIGUSR2) {
+                DBG_PRINTF("!!! ERROR: reported a SIGUSR2! (should be hidden!)\n");
+            } else DBG_PRINTF("reported signal %d\n", WTERMSIG(status));
+        }
     }
+
+    // 3. Clean up, output
+    signal(SIGTERM, SIG_IGN);
+    killpg(0, SIGTERM);
+    signal(SIGTERM, SIG_DFL);
 
 #ifdef WRITE_TRACE_BITS
     DBG_PRINTF("Raw trace bitmap:\n");
     for (int i = 0; i < MAP_SIZE; i++) {
         if (trace_bits[i])
-            DBG_PRINTF("%06u:%u\n", i, trace_bits[i]);
+            fprintf(stderr, "%06u:%u\n", i, trace_bits[i]);
     }
 #endif
+    int nzc = 0;
+    for (int i = 0; i < MAP_SIZE; i++)
+        if (trace_bits[i])
+            nzc++;
+    fprintf(stderr, "Count of non-zero bytes in trace bitmap: %d (%d%% map)\n", nzc, nzc*100/MAP_SIZE);
 
-    DBG_PRINTF("Total signaled: %d\n", signaled_count);
+    fprintf(stderr, "Total signaled: %d\n", signaled_count);
     return (signaled_count > 0) ? -1 : 0;
 }

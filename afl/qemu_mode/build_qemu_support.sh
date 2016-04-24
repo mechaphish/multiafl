@@ -81,24 +81,20 @@ fi
 echo "[+] Building a multi-CB-ready qemu!"
 
 if [ -d qemu-dev ]; then
+    echo "[*] Reusing the existing qemu-dev dir (dev only! will just run make)"
     QEMU_DIR=qemu-dev
-    echo "[*] Reusing the existing qemu-dev dir (dev only!)"
+    cd $QEMU_DIR || exit 1
 else
     QEMU_DIR=multicb-qemu
     rm -rf $QEMU_DIR
     echo "[*] Cloning our multi-CB QEMU branch..."
     git clone --branch multicb_afl --depth=0 git@git.seclab.cs.ucsb.edu:cgc/qemu.git $QEMU_DIR || exit 1
     echo "[+] Checked out."
+    cd $QEMU_DIR || exit 1
+    echo "[*] Configuring QEMU..."
+    ./cgc_configure_opt
+    echo "[+] Configuration complete."
 fi
-
-echo "[*] Configuring QEMU..."
-
-cd $QEMU_DIR || exit 1
-
-#./cgc_configure_opt
-./cgc_configure_debug
-
-echo "[+] Configuration complete."
 
 echo "[*] Attempting to build QEMU (fingers crossed!)..."
 
