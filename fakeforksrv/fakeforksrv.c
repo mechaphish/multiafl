@@ -152,7 +152,13 @@ int main(int argc, char *argv[])
             // Note: SIGUSR2 remains ignored, the QEMU forkservers must also be immune to it
             snprintf(program_i_str, 10, "%d", i);
             V(programs[i] != NULL);
-            execl(MULTICB_QEMU_PATH, "multicb-qemu",
+            execl(
+#ifdef DEBUG
+                    "/usr/bin/xterm", "xterm-for-gdb", "-e", "gdb", "--args",
+                    MULTICB_QEMU_PATH,
+#else
+                    MULTICB_QEMU_PATH, "multicb-qemu",
+#endif
                     "-multicb_i", program_i_str, "-multicb_count", program_count_str,
                     programs[i], NULL);
             err(-2, "Could not exec qemu (forkserver) %s", MULTICB_QEMU_PATH);
