@@ -6,11 +6,16 @@
 #include <stdint.h>
 #include <assert.h>
 #include <err.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 
 #include "../afl/config.h"
@@ -53,19 +58,38 @@ static void setup_shm()
 
 int main(int argc, char **argv)
 {
+    int port = -1, socketserver;
+    if ((argc > 1) && ((strcmp(argv[1],"--port")==0) || (strcmp(argv[1],"-p")==0))) {
+        if (argc < 3)
+            errx(1, "Missing port number argument");
+        //port = atoi(argv[2])
+        errno = 0; char *endptr;
+        long l = strtol(argv[2], &endptr, 10);
+        if ((errno != 0) || (l < 0) || (l > 65535) || (*endptr != '\0'))
+            err(1, "Error parsing --port");
+        port = (int) l;
+        argc -= 2;
+        argv += 2;
+    }
+
+
     const int CTL_FD = FORKSRV_FD; // The "forkserver protocol" is spoken over these (fixed) int fds
     const int ST_FD = FORKSRV_FD + 1;
-    int ctl, st; // Local fds to fakeforksrv
+    const int CONNPASSER_FD = FORKSRV_FD + 100; // Special protocol to allow for cb-test. Not for AFL.
+    int ctl, st, connpasser; // Local fds to fakeforksrv
     uint32_t msg;
 
     // 1. Initial setup /////////////////////////////////////////////////////////////
 
     setup_shm();
 
-    // Rest adapted from init_forkserver (afl-fuzz.c)
+    // Adapted from init_forkserver (afl-fuzz.c)
     int st_pipe[2], ctl_pipe[2];
     if (pipe(st_pipe) || pipe(ctl_pipe))
         err(-90, "pipe() failed");
+    int connpasser_sockets[2];
+    if (port != -1)
+        VE(socketpair(AF_UNIX, SOCK_DGRAM, 0, connpasser_sockets) == 0);
 
     pid_t pid = fork();
     if (pid == -1)
@@ -76,6 +100,10 @@ int main(int argc, char **argv)
         VE(dup2(st_pipe[1], ST_FD) != -1);
         close(ctl_pipe[0]); close(ctl_pipe[1]);
         close(st_pipe[0]); close(st_pipe[1]);
+        if (port != -1) {
+            VE(dup2(connpasser_sockets[0], CONNPASSER_FD) != -1);
+            close(connpasser_sockets[0]); close(connpasser_sockets[1]);
+        }
 
         argv[0] = "fakeforksrv";
         argv[argc] = NULL;
@@ -85,6 +113,10 @@ int main(int argc, char **argv)
         close(ctl_pipe[0]); close(st_pipe[1]);
         ctl = ctl_pipe[1];
         st = st_pipe[0];
+        if (port != -1) {
+            close(connpasser_sockets[0]);
+            connpasser = connpasser_sockets[1];
+        }
 
         DBG_PRINTF("Waiting for fakeforksrv to tell us that it's ready...\n");
         if (read(st, &msg, 4) != 4)
@@ -94,9 +126,55 @@ int main(int argc, char **argv)
     }
 
 
+    // Start listening, if requested. Note that this is _after_ fork(),
+    // so that the socket is not visible to the forkservers (or the CBs)
+    if (port != -1) {
+        // Adapted from service-launcher's socket_bind
+        socketserver = socket(AF_INET, SOCK_STREAM, 0);
+
+        // Same options. Note the 5 seconds linger on close()
+        int opt = 1;
+        struct linger so_linger = { .l_onoff=1, .l_linger=5 };
+        VE(setsockopt(socketserver, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) != -1);
+        VE(setsockopt(socketserver, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) != -1);
+        VE(setsockopt(socketserver, SOL_SOCKET, SO_LINGER, &so_linger, sizeof(so_linger)) != -1);
+
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        VE(bind(socketserver, (struct sockaddr *)&addr, sizeof(addr)) != -1);
+        VE(listen(socketserver, SOMAXCONN) != -1);
+        DBG_PRINTF("Listening on port %d\n", port);
+    }
+    signal(SIGPIPE, SIG_IGN); // I prefer the error return
+
+
     // 2. Turn connections / stdin into a fork request //////////////////////////////
+    // Similar to cb-server, but handles only one connection at a time
     int signaled_count = 0;
-    {
+    while (1) {
+        int connection;
+        if (port != -1) {
+            VE((connection = accept(socketserver, NULL, 0)) != -1);
+
+            // Special protocol to relay the connection fd
+            // Similar to how I relay the socketpairs
+            struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)));
+            cmsg->cmsg_type = SCM_RIGHTS;
+            cmsg->cmsg_level = SOL_SOCKET;
+            cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+            *((int*) CMSG_DATA(cmsg)) = connection;
+            struct msghdr msghdr = {0};
+            msghdr.msg_control = cmsg;
+            msghdr.msg_controllen = cmsg->cmsg_len;
+            VE(sendmsg(connpasser, &msghdr, 0) != -1);
+            // TODO: Close the connection now?
+
+            DBG_PRINTF("Accepted and relayed TCP connection\n");
+            msg = 0xC6CF550C; // CGC FS SOCket
+        } else msg = 0;
+
         VE(write(ctl, &msg, 4) == 4);
 
         DBG_PRINTF("Waiting for the fork() pid report...\n");
@@ -120,6 +198,10 @@ int main(int argc, char **argv)
                 DBG_PRINTF("!!! ERROR: reported a SIGUSR2! (should be hidden!)\n");
             } else DBG_PRINTF("reported signal %d\n", WTERMSIG(status));
         }
+
+        if (port == -1)
+            break; // Only one round, if using actual stdin/stdout
+        else close(connection);
     }
 
     // 3. Clean up, output

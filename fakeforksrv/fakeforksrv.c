@@ -124,6 +124,7 @@ int main(int argc, char *argv[])
     const int CTL_FD = FORKSRV_FD; // The "forkserver protocol" is spoken over these (fixed) int fds
     const int ST_FD = FORKSRV_FD + 1;
     const int FDPASSER_FD = FORKSRV_FD - 2; // -1 is TSL_FD (QEMU translations)
+    const int CONNPASSER_FD = FORKSRV_FD + 100; // Special protocol for run_via_fakeforksrv (not AFL)
     uint32_t msg;
 
     // QEMU status "globals"
@@ -160,6 +161,7 @@ int main(int argc, char *argv[])
                 close(qemuforksrv_st_fd[j]);
                 close(qemuforksrv_fdpasser[j]);
             }
+            close(CONNPASSER_FD);
 
             if (!getenv("LD_BIND_LAZY")) setenv("LD_BIND_NOW", "1", 0);
 
@@ -230,8 +232,39 @@ int main(int argc, char *argv[])
         struct msghdr msghdr = {0};
         msghdr.msg_control = cmsg;
         msghdr.msg_controllen = cmsg->cmsg_len;
+        DBG_PRINTF("Relaying to the forkservers the socketpairs (controllen = %zu)...\n", msghdr.msg_controllen);
         for (int i = 0; i < program_count; i++)
             VE(sendmsg(qemuforksrv_fdpasser[i], &msghdr, 0) != -1);
+
+        // Special protocol to allow for cb-test using run_via_fakeforksrv
+        // This is not used by AFL
+        int connection;
+        if (msg == 0xC6CF550C) { // CGC FS SOCket
+            // Relay an extra cmsg with the connection (my CONNPASSER_FD -> their FDPASSER_FD)
+            // The forkservers will dup it to stdin/stdout
+            // This code is a rough duplicate of the socketpair one (TODO: library?)
+            struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)));
+            struct msghdr msghdr = {0};
+            msghdr.msg_control = cmsg;
+            msghdr.msg_controllen = CMSG_SPACE(sizeof(int));
+            VE(recvmsg(CONNPASSER_FD, &msghdr, 0) == 0);
+            V(cmsg->cmsg_type == SCM_RIGHTS);
+            V(msghdr.msg_controllen == CMSG_LEN(sizeof(int)));
+            connection = *((int*) CMSG_DATA(cmsg));
+
+            memset(cmsg, 0, sizeof(*cmsg));
+            memset(&msghdr, 0, sizeof(msghdr));
+            cmsg->cmsg_type = SCM_RIGHTS;
+            cmsg->cmsg_level = SOL_SOCKET;
+            cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+            *((int*) CMSG_DATA(cmsg)) = connection;
+            msghdr.msg_control = cmsg;
+            msghdr.msg_controllen = cmsg->cmsg_len;
+            DBG_PRINTF("Relaying to the QEMU forkservers the TCP connection...\n");
+            for (int i = 0; i < program_count; i++)
+                VE(sendmsg(qemuforksrv_fdpasser[i], &msghdr, 0) != -1);
+            // TODO: can close(connection) now?
+        }
         
         DBG_PRINTF("Sending fork() commands...\n");
         for (int i = 0; i < program_count; i++)
@@ -303,6 +336,8 @@ int main(int argc, char *argv[])
         assert(aggregate_status != -1);
         for (int i = 0; i < program_count; i++)
             assert(qemucb_pid[i] == 0);
+
+        close(connection);
 
         // All QEMUs done. Report the aggregate status to AFL and wait for a new fork command.
         DBG_PRINTF("All QEMUs done, reporting status %#x to AFL\n", aggregate_status);

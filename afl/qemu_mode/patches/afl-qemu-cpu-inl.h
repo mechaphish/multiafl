@@ -177,8 +177,6 @@ static void afl_setup(void) {
 
 static void afl_forkserver(CPUArchState *env) {
 
-  static unsigned char tmp[4];
-
   //if (!afl_area_ptr)
   //    errx(-20, "afl_area_ptr == NULL, unsupported!");
 
@@ -211,9 +209,8 @@ static void afl_forkserver(CPUArchState *env) {
     pid_t child_pid;
     int status, t_fd[2];
 
-    /* Whoops, parent dead? */
-
-    if (read(FORKSRV_FD, tmp, 4) != 4) exit(2);
+    uint32_t forkcmd;
+    if (read(FORKSRV_FD, &forkcmd, 4) != 4) exit(2);
 
     // ADDED: Get the multi-CB socketpairs //////////////////////////////////////////
     const int FDPASSER_FD = FORKSRV_FD - 2;
@@ -225,9 +222,9 @@ static void afl_forkserver(CPUArchState *env) {
     if (recvmsg(FDPASSER_FD, &msghdr, 0) != 0)
       err(-9, "recvmsg from FDPASSER_FD");
     if (cmsg->cmsg_type != SCM_RIGHTS)
-      err(-10, "Unexpected control message");
+      errx(-10, "Unexpected control message");
     if (msghdr.msg_controllen != CMSG_LEN(sizeof(int)*num_fds))
-      err(-11, "Unexpected number of socketpair fds passed");
+      errx(-11, "Unexpected number of socketpair fds passed");
     int* cbsockets = (int*) CMSG_DATA(cmsg);
     for (int i = 0; i < num_fds; i++) {
         // The fds we get can be on the wrong number...
@@ -250,6 +247,24 @@ static void afl_forkserver(CPUArchState *env) {
       close(cbsockets[i]);
     }
 
+    // ADDED: Extra protocol to allow for cb-test ///////////////////////////////////
+    // Note: AFL does not use this
+    int test_connection = -1;
+    if (forkcmd == 0xC6CF550C) { // CGC FS SOCket
+        struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)));
+        struct msghdr msghdr = {0};
+        msghdr.msg_control = cmsg;
+        msghdr.msg_controllen = CMSG_LEN(sizeof(int));
+        if (recvmsg(FDPASSER_FD, &msghdr, 0) != 0)
+          err(-91, "recvmsg from FDPASSER_FD [SPECIAL FOR test_connection]");
+        if (cmsg->cmsg_type != SCM_RIGHTS)
+          errx(-101, "Unexpected control message [SPECIAL FOR test_connection]");
+        if (msghdr.msg_controllen != CMSG_LEN(sizeof(int)))
+          errx(-111, "Unexpected number of socketpair fds passed [SPECIAL FOR test_connection] (%zu != %zu = CMSG_LEN(sizeof(int))", msghdr.msg_controllen, CMSG_LEN(sizeof(int)));
+        test_connection = *((int*) CMSG_DATA(cmsg));
+        assert(test_connection != TSL_FD);
+        assert(test_connection != -1);
+    }
 
     /* Establish a channel with child to grab translation commands. We'll 
        read from t_fd[0], child will write to TSL_FD. */
@@ -267,6 +282,16 @@ static void afl_forkserver(CPUArchState *env) {
       signal(SIGUSR2, SIG_DFL); // ADDED: used to kill only CB-running QEMUs ////////
       close(FDPASSER_FD);       // ADDED: child won't need this anymore /////////////
 
+      // ADDED: stdin/stdout from test_connection
+      if (test_connection != -1) {
+        // Note: discarding actual stdin/stdout -- should I assign them to last_fd(+1)?
+        if (dup2(test_connection, 0) == -1)
+          err(-113, "dup test_connection to 0");
+        if (dup2(test_connection, 1) == -1)
+          err(-114, "dup test_connection to 1");
+        close(test_connection);
+      }
+
       afl_fork_child = 1;
       close(FORKSRV_FD);
       close(FORKSRV_FD + 1);
@@ -280,6 +305,8 @@ static void afl_forkserver(CPUArchState *env) {
     close(TSL_FD);
     for (int i = 0; i < num_fds; i++) // ADDED: new children will need new ones /////
         close(3+i);
+    if (test_connection != -1)
+        close(test_connection);
 
     if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) exit(5);
 
