@@ -28,6 +28,16 @@
 # define DBG_PRINTF(...) do { ; } while(0)
 #endif
 
+static void sigkill_entire_group() {
+    signal(SIGCHLD, SIG_IGN); // Prevent zombies
+    VE(killpg(0, SIGKILL) == 0);
+}
+static void sigterm_entire_group() {
+    signal(SIGCHLD, SIG_IGN); // Prevent zombies
+    signal(SIGTERM, SIG_IGN); // Allow regular exit from myself
+    VE(killpg(0, SIGTERM) == 0);
+}
+
 static void sigchld_from_forksrv(int sig, siginfo_t *info, void *ctx)
 {
     // Note: these are from the QEMU _forkservers_, not the CBs (or even the CB QEMUs)!
@@ -37,12 +47,10 @@ static void sigchld_from_forksrv(int sig, siginfo_t *info, void *ctx)
     fprintf(stderr, "!!! QEMU forkserver died (pid %d) %s %d. Killing the entire process group !!!\n", info->si_pid, (info->si_code == CLD_EXITED) ? "exit()ed with status" : (info->si_code == CLD_KILLED) ? "killed by signal" : "UNEXPECTED si_code! si_status =", info->si_status);
     (void) ctx;
 
-    // Prevent zombies
     int dummy;
     waitpid(info->si_pid, &dummy, 0);
-    signal(SIGCHLD, SIG_IGN); 
 
-    VE(killpg(0, SIGKILL) == 0);
+    sigkill_entire_group();
 }
 
 
@@ -107,6 +115,10 @@ int main(int argc, char *argv[])
     act.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
     act.sa_sigaction = sigchld_from_forksrv;
     VE(sigaction(SIGCHLD, &act, NULL) == 0);
+
+    // There's no regular exit!
+    // Always kill all remaining QEMUs
+    atexit(sigterm_entire_group);
 
 
     const int CTL_FD = FORKSRV_FD; // The "forkserver protocol" is spoken over these (fixed) int fds
@@ -194,7 +206,14 @@ int main(int argc, char *argv[])
     //
 
     while (1) {
-        VE(read(CTL_FD, &msg, 4) == 4);
+        int read_from_afl = read(CTL_FD, &msg, 4);
+        if (read_from_afl == 0) {
+            DBG_PRINTF("Can't read(CTL_FD) = 0, interpreting this as AFL death\n");
+            exit(2);
+        }
+        if (read_from_afl != 4)
+            err(3, "read(CTL_FD) not in (0,4), something unexpected is going on");
+
         DBG_PRINTF("Forking up!\n");
 
         // Rough equivalent of the setup_sockpairs (service-launcher / fakesingle)
