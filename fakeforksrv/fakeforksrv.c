@@ -34,8 +34,7 @@ static void sigchld_from_forksrv(int sig, siginfo_t *info, void *ctx)
     //       So I treat them as a fatal failure of the entire thing
     //       (restart the entire thing if desired.)
     assert(sig == SIGCHLD);
-    fprintf(stderr, "!!! QEMU forkserver died (pid %d), killing the entire process group !!!\n", info->si_pid);
-    fprintf(stderr, "  The QEMU forkserver %s %d\n", (info->si_code == CLD_EXITED) ? "exit()ed with status" : (info->si_code == CLD_KILLED) ? "killed by signal" : "UNEXPECTED si_code! si_status =", info->si_status);
+    fprintf(stderr, "!!! QEMU forkserver died (pid %d) %s %d. Killing the entire process group !!!\n", info->si_pid, (info->si_code == CLD_EXITED) ? "exit()ed with status" : (info->si_code == CLD_KILLED) ? "killed by signal" : "UNEXPECTED si_code! si_status =", info->si_status);
     (void) ctx;
 
     // Prevent zombies
@@ -158,8 +157,11 @@ int main(int argc, char *argv[])
             snprintf(program_i_str, 10, "%d", i);
             V(programs[i] != NULL);
             execl(
-#ifdef SPAWN_IN_GDB
+#if defined(SPAWN_IN_GDB)
                     "/usr/bin/xterm", "xterm-for-gdb", "-e", "gdb", "--args",
+                    MULTICB_QEMU_PATH,
+#elif defined(SPAWN_IN_XTERM)
+                    "/usr/bin/xterm", "xterm-for-qemu", "-e",
                     MULTICB_QEMU_PATH,
 #else
                     MULTICB_QEMU_PATH, "multicb-qemu",
@@ -232,15 +234,17 @@ int main(int argc, char *argv[])
         VE(write(ST_FD, &qemucb_pid[0], 4) == 4);
 
         // Wait for the process exit reports
-        fd_set s; FD_ZERO(&s);
-        int maxfd = 0;
-        for (int i = 0; i < program_count; i++) {
-            FD_SET(qemuforksrv_st_fd[i], &s);
-            maxfd = (maxfd < qemuforksrv_st_fd[i]) ? qemuforksrv_st_fd[i] : maxfd;
-        }
-
         int alive_cbs = program_count, died_cb_i = -1, died_cb_status, aggregate_status = -1;
         while (alive_cbs > 0) {
+            // died_cb_i = first one with ready status fd
+            fd_set s; FD_ZERO(&s);
+            int maxfd = 0;
+            for (int i = 0; i < program_count; i++)
+                if (qemucb_pid[i] != 0) {
+                    FD_SET(qemuforksrv_st_fd[i], &s);
+                    maxfd = (maxfd < qemuforksrv_st_fd[i]) ? qemuforksrv_st_fd[i] : maxfd;
+                }
+            assert(maxfd > 0);
             VE(select(maxfd+1, &s, NULL, NULL, NULL) > 0);
             for (int i = 0; i < program_count; i++)
                 if (FD_ISSET(qemuforksrv_st_fd[i], &s))
@@ -248,7 +252,11 @@ int main(int argc, char *argv[])
             assert(died_cb_i != -1);
             qemucb_pid[died_cb_i] = 0;
             alive_cbs--;
+
+            //DBG_PRINTF("According to select(), CB_%d died. Reading status...\n", died_cb_i);
             VE(read(qemuforksrv_st_fd[died_cb_i], &died_cb_status, 4) == 4); 
+
+            // Act on the status
             if (WIFEXITED(died_cb_status)) {
                 // Regular _terminate().
                 // No need to propagate, and use as global status only if no signals.
