@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 
 
 #include "../afl/config.h"
@@ -157,7 +158,7 @@ int main(int argc, char **argv)
         memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
-        addr.sin_addr.s_addr = INADDR_LOOPBACK;
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1");
         VE(bind(socketserver, (struct sockaddr *)&addr, sizeof(addr)) != -1);
         VE(listen(socketserver, SOMAXCONN) != -1);
         DBG_PRINTF("Listening on port %d\n", port);
