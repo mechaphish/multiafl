@@ -37,11 +37,20 @@ _Static_assert(FORKSRV_FD == 198, "Altered FORKSRV_FD? fakeforksrv has it hardco
 # define DBG_PRINTF(...) do { ; } while(0)
 #endif
 
+static int forksrv_pid = 0;
+
 static volatile bool accept_more = true;
 static void stop_accepting(__attribute__((unused)) int sig)
 {
     fprintf(stderr, "RUNNER: will stop after this run.\n");
     accept_more = false;
+}
+static void stop_all(__attribute__((unused)) int sig)
+{
+    //fprintf(stderr, "RUNNER: got SIGTERM, will try to kill everything.\n");
+    if (forksrv_pid > 0)
+        killpg(-forksrv_pid, SIGTERM);
+    exit(SIGTERM);
 }
 
 
@@ -82,10 +91,8 @@ int main(int argc, char **argv)
     }
     signal(SIGPIPE, SIG_IGN); // I prefer the error return
 
-    // Benign CTRL-C handling
-    // Note: Since this guy exists mainly for testing, no fancy handling.
-    //       If you want to stop a test run, just kill any of the QEMU forkservers (== the process group)
-    signal(SIGINT, stop_accepting);
+    signal(SIGINT, stop_accepting);   // CTRL-C = stop after this one
+    signal(SIGTERM, stop_all);        // SIGTERM = stop all, immediately
 
 
     const int CTL_FD = FORKSRV_FD; // The "forkserver protocol" is spoken over these (fixed) int fds
@@ -106,11 +113,11 @@ int main(int argc, char **argv)
     if (port != -1)
         VE(socketpair(AF_UNIX, SOCK_DGRAM, 0, connpasser_sockets) == 0);
 
-    pid_t pid = fork();
-    if (pid == -1)
+    forksrv_pid = fork();
+    if (forksrv_pid == -1)
         err(-80, "Could not fork for fakeforksrv");
 
-    if (pid == 0) {
+    if (forksrv_pid == 0) {
         VE(dup2(ctl_pipe[0], CTL_FD) != -1);
         VE(dup2(st_pipe[1], ST_FD) != -1);
         close(ctl_pipe[0]); close(ctl_pipe[1]);
@@ -220,9 +227,7 @@ int main(int argc, char **argv)
     }
 
     // 3. Clean up, output
-    signal(SIGTERM, SIG_IGN);
-    killpg(0, SIGTERM);
-    signal(SIGTERM, SIG_DFL);
+    killpg(-forksrv_pid, SIGTERM);
 
 #ifdef WRITE_TRACE_BITS
     DBG_PRINTF("Raw trace bitmap:\n");
