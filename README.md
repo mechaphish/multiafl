@@ -57,6 +57,7 @@ TODO
 
 Testing:
 
+- **NON-LUNGE POLLS FAILED!
 - **Fix signals being fatal for the QEMU forkservers too! (exit(2)?!?)**
 - **Test with actual AFL**. For now I've been testing with the polls (`run_via_fakeforsrv` + `cb_replay`).
 - Automated `make check`.
