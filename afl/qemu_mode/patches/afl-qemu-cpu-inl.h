@@ -261,7 +261,7 @@ static void afl_forkserver(CPUArchState *env) {
           errx(-101, "Unexpected control message [SPECIAL FOR test_connection]");
         if (msghdr.msg_controllen != CMSG_LEN(sizeof(int)))
           errx(-111, "Unexpected number of socketpair fds passed [SPECIAL FOR test_connection] (%zu != %zu = CMSG_LEN(sizeof(int))", msghdr.msg_controllen, CMSG_LEN(sizeof(int)));
-        test_connection = *((int*) CMSG_DATA(cmsg));
+        memcpy(&test_connection, CMSG_DATA(cmsg), sizeof(int));
         assert(test_connection != TSL_FD);
         assert(test_connection != -1);
     }

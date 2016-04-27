@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -34,6 +35,13 @@ _Static_assert(FORKSRV_FD == 198, "Altered FORKSRV_FD? fakeforksrv has it hardco
 #else
 # define DBG_PRINTF(...) do { ; } while(0)
 #endif
+
+static volatile bool accept_more = true;
+static void stop_accepting(__attribute__((unused)) int sig)
+{
+    fprintf(stderr, "RUNNER: will stop after this run.\n");
+    accept_more = false;
+}
 
 
 // Shared bitmap handling adapted from afl-showmap.c
@@ -71,6 +79,12 @@ int main(int argc, char **argv)
         argc -= 2;
         argv += 2;
     }
+    signal(SIGPIPE, SIG_IGN); // I prefer the error return
+
+    // Benign CTRL-C handling
+    // Note: Since this guy exists mainly for testing, no fancy handling.
+    //       If you want to stop a test run, just kill any of the QEMU forkservers (== the process group)
+    signal(SIGINT, stop_accepting);
 
 
     const int CTL_FD = FORKSRV_FD; // The "forkserver protocol" is spoken over these (fixed) int fds
@@ -143,17 +157,17 @@ int main(int argc, char **argv)
         memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
+        addr.sin_addr.s_addr = INADDR_LOOPBACK;
         VE(bind(socketserver, (struct sockaddr *)&addr, sizeof(addr)) != -1);
         VE(listen(socketserver, SOMAXCONN) != -1);
         DBG_PRINTF("Listening on port %d\n", port);
     }
-    signal(SIGPIPE, SIG_IGN); // I prefer the error return
 
 
     // 2. Turn connections / stdin into a fork request //////////////////////////////
     // Similar to cb-server, but handles only one connection at a time
     int signaled_count = 0;
-    while (1) {
+    while (accept_more) {
         int connection;
         if (port != -1) {
             VE((connection = accept(socketserver, NULL, 0)) != -1);
@@ -164,7 +178,7 @@ int main(int argc, char **argv)
             cmsg->cmsg_type = SCM_RIGHTS;
             cmsg->cmsg_level = SOL_SOCKET;
             cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-            *((int*) CMSG_DATA(cmsg)) = connection;
+            memcpy(CMSG_DATA(cmsg), &connection, sizeof(int));
             struct msghdr msghdr = {0};
             msghdr.msg_control = cmsg;
             msghdr.msg_controllen = cmsg->cmsg_len;

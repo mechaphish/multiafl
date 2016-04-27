@@ -101,6 +101,8 @@ int main(int argc, char *argv[])
     for (int i = 0; i < program_count; i++)
         DBG_PRINTF("   CB_%d = %s\n", i, programs[i]);
 
+    signal(SIGPIPE, SIG_IGN); // I prefer the error return. Also, it's problematic when TCP is involved.
+
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     //
@@ -238,7 +240,7 @@ int main(int argc, char *argv[])
 
         // Special protocol to allow for cb-test using run_via_fakeforksrv
         // This is not used by AFL
-        int connection;
+        int connection = -1;
         if (msg == 0xC6CF550C) { // CGC FS SOCket
             // Relay an extra cmsg with the connection (my CONNPASSER_FD -> their FDPASSER_FD)
             // The forkservers will dup it to stdin/stdout
@@ -250,14 +252,14 @@ int main(int argc, char *argv[])
             VE(recvmsg(CONNPASSER_FD, &msghdr, 0) == 0);
             V(cmsg->cmsg_type == SCM_RIGHTS);
             V(msghdr.msg_controllen == CMSG_LEN(sizeof(int)));
-            connection = *((int*) CMSG_DATA(cmsg));
+            memcpy(&connection, CMSG_DATA(cmsg), sizeof(int));
 
             memset(cmsg, 0, sizeof(*cmsg));
             memset(&msghdr, 0, sizeof(msghdr));
             cmsg->cmsg_type = SCM_RIGHTS;
             cmsg->cmsg_level = SOL_SOCKET;
             cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-            *((int*) CMSG_DATA(cmsg)) = connection;
+            memcpy(CMSG_DATA(cmsg), &connection, sizeof(int));
             msghdr.msg_control = cmsg;
             msghdr.msg_controllen = cmsg->cmsg_len;
             DBG_PRINTF("Relaying to the QEMU forkservers the TCP connection...\n");
@@ -337,7 +339,8 @@ int main(int argc, char *argv[])
         for (int i = 0; i < program_count; i++)
             assert(qemucb_pid[i] == 0);
 
-        close(connection);
+        if (connection != -1)
+            close(connection);
 
         // All QEMUs done. Report the aggregate status to AFL and wait for a new fork command.
         DBG_PRINTF("All QEMUs done, reporting status %#x to AFL\n", aggregate_status);

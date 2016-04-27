@@ -1,8 +1,8 @@
 #CFLAGS := -DDEBUG -DSPAWN_IN_GDB
 #CFLAGS := -DDEBUG -DSPAWN_IN_XTERM
-CFLAGS := -DDEBUG
+#CFLAGS := -DDEBUG
 #CFLAGS := -DDEBUG -O3 -march=core2
-#CFLAGS := -O3 -march=core2
+CFLAGS := -O3 -march=core2
 CFLAGS += -m32 -std=gnu99 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
 
 EXAMPLES_DIR := /usr/share/cgc-challenges
