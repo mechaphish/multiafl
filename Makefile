@@ -7,6 +7,7 @@ clean:
 	$(MAKE) -C fakesingle clean
 	$(MAKE) -C fakeforksrv clean
 	$(MAKE) -C afl clean
+	[ ! -d '$(CURDIR)/afl/qemu_mode/qemu-dev' ] || $(MAKE) -C '$(CURDIR)/afl/qemu_mode/qemu-dev' clean
 check: all
 	$(MAKE) -C fakeforksrv check
 	@echo "If in a DARPA VM, You can also make -C fakesingle check"
