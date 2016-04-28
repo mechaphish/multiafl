@@ -20,6 +20,8 @@
 
  */
 
+#define DEBUG_STDERR
+
 #define AFL_MAIN
 #define MESSAGES_TO_STDOUT
 
@@ -95,10 +97,12 @@ EXP_ST u64 mem_limit = MEM_LIMIT;     /* Memory cap for child (MB)        */
 
 static u32 stats_update_freq = 1;     /* Stats update frequency (execs)   */
 
+// FIXED FOR multiafl
+const EXP_ST u8 dumb_mode = 0, no_forkserver = 0;
+
 EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            force_deterministic,       /* Force deterministic stages?      */
            use_splicing,              /* Recombine input files?           */
-           dumb_mode,                 /* Run in non-instrumented mode?    */
            score_changed,             /* Scoring for favorites changed?   */
            kill_signal,               /* Signal that killed the child     */
            resuming_fuzz,             /* Resuming an older fuzzing job?   */
@@ -106,7 +110,6 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            not_on_tty,                /* stdout is not a tty              */
            term_too_small,            /* terminal dimensions too small    */
            uses_asan,                 /* Target uses ASAN?                */
-           no_forkserver,             /* Disable forkserver?              */
            crash_mode,                /* Crash mode! Yeah!                */
            in_place_resume,           /* Attempt in-place resume?         */
            auto_changed,              /* Auto-generated tokens changed?   */
@@ -121,6 +124,9 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
 static s32 out_fd,                    /* Persistent fd for out_file       */
            dev_urandom_fd = -1,       /* Persistent fd for /dev/urandom   */
            dev_null_fd = -1,          /* Persistent fd for /dev/null      */
+#ifdef DEBUG_STDERR
+           my_stderr_fd = -1,         /* XXX: MY DEBUG */
+#endif
            fsrv_ctl_fd,               /* Fork server control pipe (write) */
            fsrv_st_fd;                /* Fork server status pipe (read)   */
 
@@ -1945,7 +1951,11 @@ EXP_ST void init_forkserver(char** argv) {
     setsid();
 
     dup2(dev_null_fd, 1);
+#ifdef DEBUG_STDERR
+    dup2(my_stderr_fd, 2);
+#else
     dup2(dev_null_fd, 2);
+#endif
 
     if (out_file) {
 
@@ -1970,6 +1980,9 @@ EXP_ST void init_forkserver(char** argv) {
 
     close(out_dir_fd);
     close(dev_null_fd);
+#ifdef DEBUG_STDERR
+    close(my_stderr_fd);
+#endif
     close(dev_urandom_fd);
     close(fileno(plot_file));
 
@@ -2191,84 +2204,7 @@ static u8 run_target(char** argv) {
 
   if (dumb_mode == 1 || no_forkserver) {
 
-    child_pid = fork();
-
-    if (child_pid < 0) PFATAL("fork() failed");
-
-    if (!child_pid) {
-
-      struct rlimit r;
-
-#ifdef HAVE_AFFINITY
-      if (use_affinity) set_cpu_affinity(cpu_aff_child);
-#endif /* HAVE_AFFINITY */
-
-      if (mem_limit) {
-
-        r.rlim_max = r.rlim_cur = ((rlim_t)mem_limit) << 20;
-
-#ifdef RLIMIT_AS
-
-        setrlimit(RLIMIT_AS, &r); /* Ignore errors */
-
-#else
-
-        setrlimit(RLIMIT_DATA, &r); /* Ignore errors */
-
-#endif /* ^RLIMIT_AS */
-
-      }
-
-      r.rlim_max = r.rlim_cur = 0;
-
-      setrlimit(RLIMIT_CORE, &r); /* Ignore errors */
-
-      /* Isolate the process and configure standard descriptors. If out_file is
-         specified, stdin is /dev/null; otherwise, out_fd is cloned instead. */
-
-      setsid();
-
-      dup2(dev_null_fd, 1);
-      dup2(dev_null_fd, 2);
-
-      if (out_file) {
-
-        dup2(dev_null_fd, 0);
-
-      } else {
-
-        dup2(out_fd, 0);
-        close(out_fd);
-
-      }
-
-      /* On Linux, would be faster to use O_CLOEXEC. Maybe TODO. */
-
-      close(dev_null_fd);
-      close(out_dir_fd);
-      close(dev_urandom_fd);
-      close(fileno(plot_file));
-
-      /* Set sane defaults for ASAN if nothing else specified. */
-
-      setenv("ASAN_OPTIONS", "abort_on_error=1:"
-                             "detect_leaks=0:"
-                             "symbolize=0:"
-                             "allocator_may_return_null=1", 0);
-
-      setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
-                             "symbolize=0:"
-                             "msan_track_origins=0", 0);
-
-      execv(target_path, argv);
-
-      /* Use a distinctive bitmap value to tell the parent about execv()
-         falling through. */
-
-      *(u32*)trace_bits = EXEC_FAIL_SIG;
-      exit(0);
-
-    }
+    FATAL("multiafl can only run in forkserver mode");
 
   } else {
 
@@ -6665,8 +6601,8 @@ EXP_ST void check_binary(u8* fname) {
 
 #ifndef __APPLE__
 
-  if (f_data[0] != 0x7f || memcmp(f_data + 1, "ELF", 3))
-    FATAL("Program '%s' is not an ELF binary", target_path);
+  if (f_data[0] != 0x7f || memcmp(f_data + 1, "CGC", 3))
+    FATAL("Program '%s' is not a CGC binary", target_path);
 
 #else
 
@@ -6809,7 +6745,7 @@ static void check_term_size(void) {
 
 static void usage(u8* argv0) {
 
-  SAYF("\n%s [ options ] -- /path/to/fuzzed_app [ ... ]\n\n"
+  SAYF("\n%s [ options ] -- /path/to/CB_0 [/path/to/CB_1] [ ... ]\n\n"
 
        "Required parameters:\n\n"
 
@@ -6826,7 +6762,7 @@ static void usage(u8* argv0) {
        "Fuzzing behavior settings:\n\n"
 
        "  -d            - quick & dirty mode (skips deterministic steps)\n"
-       "  -n            - fuzz without instrumentation (dumb mode)\n"
+       "  -n            - dumb mode NOT SUPPORTED\n"
        "  -x dir        - optional fuzzer dictionary (see README)\n\n"
 
        "Other stuff:\n\n"
@@ -6838,9 +6774,9 @@ static void usage(u8* argv0) {
 #endif /* HAVE_AFFINITY */
        "  -C            - crash exploration mode (the peruvian rabbit thing)\n\n"
 
-       "For additional tips, please consult %s/README.\n\n",
+       "*** THIS ONE IS FOR multicb. Adaptations are small, but for safety use this one. ****\n\n",
 
-       argv0, EXEC_TIMEOUT, MEM_LIMIT, doc_path);
+       argv0, EXEC_TIMEOUT, MEM_LIMIT);
 
   exit(1);
 
@@ -6945,6 +6881,10 @@ EXP_ST void setup_dirs_fds(void) {
 
   dev_null_fd = open("/dev/null", O_RDWR);
   if (dev_null_fd < 0) PFATAL("Unable to open /dev/null");
+#ifdef DEBUG_STDERR
+  my_stderr_fd = open("/tmp/my_stderr.txt", O_CREAT|O_WRONLY|O_APPEND, 0666);
+  if (my_stderr_fd < 0) PFATAL("Unable to open /tmp/my_stderr.txt");
+#endif
 
   dev_urandom_fd = open("/dev/urandom", O_RDONLY);
   if (dev_urandom_fd < 0) PFATAL("Unable to open /dev/urandom");
@@ -7376,10 +7316,10 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
   char** new_argv = ck_alloc(sizeof(char*) * (argc + 4));
   u8 *tmp, *cp, *rsl, *own_copy;
 
-  memcpy(new_argv + 3, argv + 1, sizeof(char*) * argc);
+  memcpy(new_argv + 2, argv + 1, sizeof(char*) * argc);
 
-  new_argv[2] = target_path;
-  new_argv[1] = "--";
+  new_argv[1] = target_path;
+  //new_argv[1] = "--"; REMOVED FOR SIMPLICITY IN FAKEFORKSRV
 
   /* Now we need to actually find the QEMU binary to put in argv[0]. */
 
@@ -7387,7 +7327,7 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
 
   if (tmp) {
 
-    cp = alloc_printf("%s/afl-qemu-trace", tmp);
+    cp = alloc_printf("%s/fakeforksrv", tmp);
 
     if (access(cp, X_OK))
       FATAL("Unable to find '%s'", tmp);
@@ -7404,7 +7344,7 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
 
     *rsl = 0;
 
-    cp = alloc_printf("%s/afl-qemu-trace", own_copy);
+    cp = alloc_printf("%s/fakeforksrv", own_copy);
     ck_free(own_copy);
 
     if (!access(cp, X_OK)) {
@@ -7416,24 +7356,19 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
 
   } else ck_free(own_copy);
 
-  if (!access(BIN_PATH "/afl-qemu-trace", X_OK)) {
+  if (!access(BIN_PATH "/fakeforksrv", X_OK)) {
 
-    target_path = new_argv[0] = ck_strdup(BIN_PATH "/afl-qemu-trace");
+    target_path = new_argv[0] = ck_strdup(BIN_PATH "/fakeforksrv");
     return new_argv;
 
   }
 
   SAYF("\n" cLRD "[-] " cRST
-       "Oops, unable to find the 'afl-qemu-trace' binary. The binary must be built\n"
-       "    separately by following the instructions in qemu_mode/README.qemu. If you\n"
+       "Oops, unable to find the 'fakeforksrv' binary. See the main Makefile. If you\n"
        "    already have the binary installed, you may need to specify AFL_PATH in the\n"
-       "    environment.\n\n"
+       "    environment.\n");
 
-       "    Of course, even without QEMU, afl-fuzz can still work with binaries that are\n"
-       "    instrumented at compile time with afl-gcc. It is also possible to use it as a\n"
-       "    traditional \"dumb\" fuzzer by specifying '-n' in the command line.\n");
-
-  FATAL("Failed to locate 'afl-qemu-trace'.");
+  FATAL("Failed to locate 'fakeforksrv'.");
 
 }
 
@@ -7645,7 +7580,7 @@ int main(int argc, char** argv) {
       case 'n':
 
         if (dumb_mode) FATAL("Multiple -n options not supported");
-        if (getenv("AFL_DUMB_FORKSRV")) dumb_mode = 2; else dumb_mode = 1;
+        if (getenv("AFL_DUMB_FORKSRV")) FATAL("multiafl needs forkserver mode!");
 
         break;
 
@@ -7691,7 +7626,7 @@ int main(int argc, char** argv) {
 
   }
 
-  if (getenv("AFL_NO_FORKSRV"))    no_forkserver    = 1;
+  if (getenv("AFL_NO_FORKSRV")) FATAL("multiafl needs forkserver mode!");
   if (getenv("AFL_NO_CPU_RED"))    no_cpu_meter_red = 1;
   if (getenv("AFL_NO_VAR_CHECK"))  no_var_check     = 1;
   if (getenv("AFL_SHUFFLE_QUEUE")) shuffle_queue    = 1;
@@ -7735,8 +7670,7 @@ int main(int argc, char** argv) {
 
   if (qemu_mode)
     use_argv = get_qemu_argv(argv[0], argv + optind, argc - optind);
-  else
-    use_argv = argv + optind;
+  else FATAL("multiafl needs -Q!");
 
   perform_dry_run(use_argv);
 

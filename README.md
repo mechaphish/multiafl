@@ -57,7 +57,7 @@ TODO
 
 Testing:
 
-- **Test with actual AFL**. For now I've been testing with the polls (`run_via_fakeforsrv` + `cb_replay`).
+- **Why does AFL hang?**. Works with single-CB `CADET_00003`, but hangs on the others... just too complex? Timeout somehow not working?
 
 
 Code:

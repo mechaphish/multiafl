@@ -12,11 +12,13 @@ CFLAGS += -DMULTICB_QEMU_PATH='"$(MULTICB_QEMU_PATH)"'
 
 
 all: fakeforksrv run_via_fakeforksrv
+	cp $(CURDIR)/fakeforksrv $(CURDIR)/../afl/
 
 
 .PHONY: clean all check install
 clean:
 	-rm -f fakeforksrv run_via_fakeforksrv
+	-rm -f $(CURDIR)/../afl/fakeforksrv
 
 check-cs-%: all
 	[ -x "$(MULTICB_QEMU_PATH)" ]

@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <stdint.h>
@@ -56,6 +57,12 @@ static void sigchld_from_forksrv(int sig, siginfo_t *info, void *ctx)
 
 int main(int argc, char *argv[])
 {
+    struct stat multicb_qemu_filestats;
+    if (stat(MULTICB_QEMU_PATH, &multicb_qemu_filestats) != 0)
+        err(88, "Could not stat MULTICB_QEMU_PATH = '%s'!", MULTICB_QEMU_PATH);
+    V(S_ISREG(multicb_qemu_filestats.st_mode));
+    V((multicb_qemu_filestats.st_mode & S_IXUSR) == S_IXUSR);
+
     ///////////////////////////////////////////////////////////////////////////////////////////////
     //
     // 0. Find the CBs. Note: Counts them 0-based, differently from the sample Makefiles.
@@ -180,7 +187,7 @@ int main(int argc, char *argv[])
                     "/usr/bin/xterm", "xterm-for-qemu", "-e",
                     MULTICB_QEMU_PATH,
 #else
-                    MULTICB_QEMU_PATH, "multicb-qemu",
+                    MULTICB_QEMU_PATH, MULTICB_QEMU_PATH,
 #endif
                     "-multicb_i", program_i_str, "-multicb_count", program_count_str,
                     programs[i], NULL);
