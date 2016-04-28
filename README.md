@@ -57,15 +57,13 @@ TODO
 
 Testing:
 
-- **Re-check contemporary runs**
 - **Fix signals being fatal for the QEMU forkservers too! (exit(2)?!?)**
 - **Test with actual AFL**. For now I've been testing with the polls (`run_via_fakeforsrv` + `cb_replay`).
-- Automated `make check`.
 
 
 Code:
 
-- Delay the forkserver at the first receive/transmit/fdwait?
-- The exit-on-double-empty-receive heuristic is currently disabled. Reintroduce with separate count for each fd?
 - Expose the signal kill info to the CRS. (Rest can probably just reuse the regular AFL integration.)
-- Ask Nick for other integrations / useful modifications.
+- Delay the forkserver at the first receive(stdin) from *any* CB? (This is tricky, see comment in `syscall.c`)
+- The exit-on-double-empty-receive heuristic is counting for _any_ fd. Separate count for each fd?
+- Re-ask Nick for other integrations / useful modifications :)
