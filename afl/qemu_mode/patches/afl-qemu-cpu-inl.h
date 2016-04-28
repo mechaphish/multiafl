@@ -291,6 +291,15 @@ static void afl_forkserver(CPUArchState *env) {
           err(-114, "dup test_connection to 1");
         close(test_connection);
       }
+#if !defined(DEBUG) && !defined(ALLOW_CB_STDERR)
+      // This is what service-launcher does if run without --debug
+      int dev_null_fd = open("/dev/null", O_WRONLY);
+      if (dev_null_fd == -1)
+        err(-115, "Cannot open /dev/null!?!"); 
+      if (dup2(dev_null_fd, 2) == -1)
+        err(-115, "dup /dev/null to 2");
+      close(dev_null_fd);
+#endif
 
       afl_fork_child = 1;
       close(FORKSRV_FD);
