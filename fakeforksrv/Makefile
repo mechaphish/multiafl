@@ -18,13 +18,18 @@ all: fakeforksrv run_via_fakeforksrv
 clean:
 	-rm -f fakeforksrv run_via_fakeforksrv
 
-check: all
+check-cs-%: all
 	[ -x "$(MULTICB_QEMU_PATH)" ]
-	$(CURDIR)/check-cs.sh $(SAMPLES_DIR)/examples/CADET_00003/poller/for-release $(SAMPLES_DIR)/examples/CADET_00003/bin/CADET_00003
-	$(CURDIR)/check-cs.sh EAGLE_00004
-	$(CURDIR)/check-cs.sh LUNGE_00005
-	$(CURDIR)/check-cs.sh NRFIN_00006
-	$(CURDIR)/check-cs.sh YAN01_00009
-	$(CURDIR)/check-cs.sh KPRCA_00016
-	$(CURDIR)/check-cs.sh KPRCA_00024
-	$(CURDIR)/check-cs.sh KPRCA_00048
+	$(CURDIR)/check-cs.sh $*
+
+check: \
+check-cs-EAGLE_00004 \
+check-cs-EAGLE_00004 \
+check-cs-NRFIN_00006 \
+check-cs-YAN01_00009 \
+check-cs-KPRCA_00016 \
+check-cs-KPRCA_00024 \
+check-cs-KPRCA_00048 \
+check-cs-LUNGE_00005 \
+check-cs-CADET_00003
+	@echo "All tests passed :)"
