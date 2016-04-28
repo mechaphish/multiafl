@@ -28,6 +28,7 @@
 
 #include <assert.h>
 #include <err.h>
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/shm.h>
 #include "../../config.h"
@@ -204,7 +205,16 @@ void afl_forkserver(CPUArchState *env) {
     int status, t_fd[2];
 
     uint32_t forkcmd;
-    if (read(FORKSRV_FD, &forkcmd, 4) != 4) exit(2);
+    // XXX:  We could still get the SIGCHLD of the previous child, and apparently this
+    //       happens semi-reliably when the child is killed by a signal!
+    //       Hence the TEMP_FAILURE_RETRY -- note that this potentially applies to the
+    //       entire loop, and I'm not sure why this does not happen all the time!
+    //       Maybe because the parent (fakeforksrv) having a handler for SIGCHLD?
+    // TODO: This "fix" relies on tb_find_slow to be fine on its own!
+    //       A more reliable "fix" may be to signal(SIGCHLD,SIG_IGN), but this would
+    //       probably break the waitpid() for status below...
+    //       Perhaps I should block/unblock SIGCHLD like service-launcher does?
+    if (TEMP_FAILURE_RETRY(read(FORKSRV_FD, &forkcmd, 4)) != 4) exit(2);
 
     // ADDED: Get the multi-CB socketpairs //////////////////////////////////////////
     const int FDPASSER_FD = FORKSRV_FD - 2;
@@ -213,7 +223,7 @@ void afl_forkserver(CPUArchState *env) {
     struct msghdr msghdr = {0};
     msghdr.msg_control = cmsg;
     msghdr.msg_controllen = CMSG_SPACE(sizeof(int)*num_fds);
-    if (recvmsg(FDPASSER_FD, &msghdr, 0) != 0)
+    if (TEMP_FAILURE_RETRY(recvmsg(FDPASSER_FD, &msghdr, 0)) != 0)
       err(-9, "recvmsg from FDPASSER_FD");
     if (cmsg->cmsg_type != SCM_RIGHTS)
       errx(-10, "Unexpected control message");
@@ -224,7 +234,7 @@ void afl_forkserver(CPUArchState *env) {
         // The fds we get can be on the wrong number...
         if (cbsockets[i] == (3+1)) continue;
         // ...so if wrong move them out of the way...
-        int newfd = fcntl(cbsockets[i], F_DUPFD, 50+num_fds);
+        int newfd = TEMP_FAILURE_RETRY(fcntl(cbsockets[i], F_DUPFD, 50+num_fds));
         if (newfd == -1)
             err(-14, "Could not F_DUPFD the %d-th passed fd (%d)! Maybe out of file descriptors?", i, cbsockets[i]);
         close(cbsockets[i]);
@@ -233,11 +243,9 @@ void afl_forkserver(CPUArchState *env) {
     for (int i = 0; i < num_fds; i++) {
       if (cbsockets[i] == (3+i)) continue;
       // ...and then dup to the right one
-      int newfd = fcntl(cbsockets[i], F_DUPFD, 3+i);
-      if (newfd != (3+i)) {
-        warn("Could not set file descriptor %d, probably it was already open! I need it for multi-CB socketpairs. fcntl() = %d, errno, if any, was", 3+i, newfd);
-        exit(-12);
-      }
+      int newfd = TEMP_FAILURE_RETRY(fcntl(cbsockets[i], F_DUPFD, 3+i));
+      if (newfd != (3+i))
+        err(-12, "Could not set file descriptor %d, probably it was already open! I need it for multi-CB socketpairs. fcntl() = %d, errno, if any, was", 3+i, newfd);
       close(cbsockets[i]);
     }
 
@@ -249,7 +257,7 @@ void afl_forkserver(CPUArchState *env) {
         struct msghdr msghdr = {0};
         msghdr.msg_control = cmsg;
         msghdr.msg_controllen = CMSG_LEN(sizeof(int));
-        if (recvmsg(FDPASSER_FD, &msghdr, 0) != 0)
+        if (TEMP_FAILURE_RETRY(recvmsg(FDPASSER_FD, &msghdr, 0)) != 0)
           err(-91, "recvmsg from FDPASSER_FD [SPECIAL FOR test_connection]");
         if (cmsg->cmsg_type != SCM_RIGHTS)
           errx(-101, "Unexpected control message [SPECIAL FOR test_connection]");
@@ -263,7 +271,7 @@ void afl_forkserver(CPUArchState *env) {
     /* Establish a channel with child to grab translation commands. We'll 
        read from t_fd[0], child will write to TSL_FD. */
 
-    if (pipe(t_fd) || dup2(t_fd[1], TSL_FD) < 0) exit(3);
+    if (pipe(t_fd) || TEMP_FAILURE_RETRY(dup2(t_fd[1], TSL_FD)) < 0) exit(3);
     close(t_fd[1]);
 
     child_pid = fork();
@@ -311,7 +319,7 @@ void afl_forkserver(CPUArchState *env) {
     if (test_connection != -1)
         close(test_connection);
 
-    if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) exit(5);
+    if (TEMP_FAILURE_RETRY(write(FORKSRV_FD + 1, &child_pid, 4)) != 4) exit(5);
 
     /* Collect translation requests until child dies and closes the pipe. */
 
@@ -319,8 +327,8 @@ void afl_forkserver(CPUArchState *env) {
 
     /* Get and relay exit status to parent. */
 
-    if (waitpid(child_pid, &status, 0) < 0) exit(6);
-    if (write(FORKSRV_FD + 1, &status, 4) != 4) exit(7);
+    if (TEMP_FAILURE_RETRY(waitpid(child_pid, &status, 0)) < 0) exit(6);
+    if (TEMP_FAILURE_RETRY(write(FORKSRV_FD + 1, &status, 4)) != 4) exit(7);
 
   }
 
@@ -373,7 +381,7 @@ static void afl_request_tsl(target_ulong pc, target_ulong cb, uint64_t flags) {
   t.cs_base = cb;
   t.flags   = flags;
 
-  if (write(TSL_FD, &t, sizeof(struct afl_tsl)) != sizeof(struct afl_tsl))
+  if (TEMP_FAILURE_RETRY(write(TSL_FD, &t, sizeof(struct afl_tsl))) != sizeof(struct afl_tsl))
     return;
 
 }
@@ -390,7 +398,7 @@ static void afl_wait_tsl(CPUArchState *env, int fd) {
 
     /* Broken pipe means it's time to return to the fork server routine. */
 
-    if (read(fd, &t, sizeof(struct afl_tsl)) != sizeof(struct afl_tsl))
+    if (TEMP_FAILURE_RETRY(read(fd, &t, sizeof(struct afl_tsl))) != sizeof(struct afl_tsl))
       break;
 
     tb_find_slow(env, t.pc, t.cs_base, t.flags);
