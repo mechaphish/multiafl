@@ -49,13 +49,7 @@
    _start and does the usual forkserver stuff, not very different from
    regular instrumentation injected via afl-as.h. */
 
-#define AFL_QEMU_CPU_SNIPPET2 do { \
-    if(tb->pc == afl_entry_point) { \
-      afl_setup(); \
-      afl_forkserver(env); \
-    } \
-    afl_maybe_log(tb->pc); \
-  } while (0)
+#define AFL_QEMU_CPU_SNIPPET2 ERROR_SNIPPET2_WAS_REMOVED
 
 /* We use one additional file descriptor to relay "needs translation"
    messages between the child and the fork server. */
@@ -82,8 +76,8 @@ static unsigned int afl_inst_rms = MAP_SIZE;
 
 /* Function declarations. */
 
-static void afl_setup(void);
-static void afl_forkserver(CPUArchState*);
+void afl_setup(void);
+void afl_forkserver(CPUArchState*);
 static inline void afl_maybe_log(abi_ulong);
 
 static void afl_wait_tsl(CPUArchState*, int);
@@ -127,7 +121,7 @@ static inline abi_ulong limit_to_my_map(abi_ulong map_offset)
 
 /* Set up SHM region and initialize other stuff. */
 
-static void afl_setup(void) {
+void afl_setup(void) {
 
   char *id_str = getenv(SHM_ENV_VAR),
        *inst_r = getenv("AFL_INST_RATIO");
@@ -175,7 +169,7 @@ static void afl_setup(void) {
 
 /* Fork server logic, invoked once we hit _start. */
 
-static void afl_forkserver(CPUArchState *env) {
+void afl_forkserver(CPUArchState *env) {
 
   //if (!afl_area_ptr)
   //    errx(-20, "afl_area_ptr == NULL, unsupported!");
