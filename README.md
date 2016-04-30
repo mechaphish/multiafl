@@ -57,7 +57,8 @@ TODO
 
 Testing:
 
-- **Why does AFL hang?**. Works with single-CB `CADET_00003`, but hangs on the others... just too complex? Timeout somehow not working?
+- Check efficiency with real AFL, try to find bugs -- in the CBs on in my code :)
+- Why is it so slow with `LUNGE_00005`? (Poll test ~3 times slower! Other challenge sets fare better. Could be because the polls are kinda bad and it almost always exists immediately?)
 
 
 Code:
@@ -67,3 +68,12 @@ Code:
 - The exit-on-double-empty-receive heuristic is counting for _any_ fd. Separate count for each fd?
 - Better fix for forkserver syscalls interrupted by SIGCHLD. Block/wait like service-launcher does?
 - Re-ask Nick for other integrations / useful modifications :)
+
+
+Notes for debugging
+===================
+
+- Compile stuff with `-O0` or `-Og` (set CFLAGS for afl and fakeforksrv, run `cgc_configure_debug` for QEMU).
+- Set `DEBUG_STDERR` in [afl-fuzz.c](afl/afl-fuzz.c) to have it go to `/tmp/my_stderr.txt` instead of `/dev/null`.
+- fakeforksrv can spawn the QEMUs in separate xterm windows, possibly with gdb (set [CFLAGS](fakeforksrv/Makefile)).
+- An `afl/qemu_mode/qemu_dev` dir is used by preference, if available, and left alone w.r.t. deletion and reconfiguration.

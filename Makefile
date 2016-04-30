@@ -1,8 +1,9 @@
 all:
-	$(MAKE) -C fakesingle
 	$(MAKE) -C fakeforksrv
 	$(MAKE) -C afl
 	bash -c "cd '$(CURDIR)/afl/qemu_mode' && ./build_qemu_support.sh"
+	@echo "Skipping the test-only fakesingle."
+	#$(MAKE) -C fakesingle
 clean:
 	$(MAKE) -C fakesingle clean
 	$(MAKE) -C fakeforksrv clean

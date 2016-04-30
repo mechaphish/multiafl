@@ -20,7 +20,8 @@
 
  */
 
-#define DEBUG_STDERR
+// XXX: Define this to have stderr go to /tmp/my_stderr.txt
+//#define DEBUG_STDERR
 
 #define AFL_MAIN
 #define MESSAGES_TO_STDOUT
