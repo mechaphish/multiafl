@@ -2220,6 +2220,10 @@ static u8 run_target(char** argv) {
 
     }
 
+
+    // NOTE: child_pid will be the same as forksrv_pid, since it doesn't know
+    //       which one of the CBs will remain alive.
+    //       Changed alarm to kill the process group with SIGUSR2.
     if ((res = read(fsrv_st_fd, &child_pid, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -6496,7 +6500,7 @@ static void handle_timeout(int sig) {
   if (child_pid > 0) {
 
     child_timed_out = 1; 
-    kill(-child_pid, SIGKILL);
+    kill(-child_pid, SIGUSR2); // MODIFIED SO IT DOES NOT KILL THE FORKSERVERS (in my mod child_pid == forksrv_pid)
 
   } else if (child_pid == -1 && forksrv_pid > 0) {
 

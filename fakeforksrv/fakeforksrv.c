@@ -135,6 +135,7 @@ int main(int argc, char *argv[])
     const int FDPASSER_FD = FORKSRV_FD - 2; // -1 is TSL_FD (QEMU translations)
     const int CONNPASSER_FD = FORKSRV_FD + 100; // Special protocol for run_via_fakeforksrv (not AFL)
     uint32_t msg;
+    uint32_t mypid = getpid();
 
     // QEMU status "globals"
     int qemuforksrv_ctl_fd[program_count];   // QEMU forksever communication pipes
@@ -290,9 +291,10 @@ int main(int argc, char *argv[])
 
         // AFL can now proceed
         // Note: it can kill() the pid we return, thinking it's the running program (timeouts, stop, etc.).
-        //       As a workaround, I return the first qemucb pid, and will take care of "propagating" the kill on forkserver return
+        //       I return my own pid, and modified AFL to also kill via SIGUSR2 to the group.
+        //       Can't return a CB PID, because it may die before the others.
         DBG_PRINTF("AFL GO!\n");
-        VE(write(ST_FD, &qemucb_pid[0], 4) == 4);
+        VE(write(ST_FD, &mypid, 4) == 4);
 
         // Wait for the process exit reports
         int alive_cbs = program_count, died_cb_i = -1, died_cb_status, aggregate_status = -1;
@@ -330,10 +332,8 @@ int main(int argc, char *argv[])
             // Kill all others, return as status.
             // TODO: Prioritize SIGSEGV/SIGILL/SIGBUS over the others?
             V(WIFSIGNALED(died_cb_status));
-            if (WTERMSIG(died_cb_status) == SIGKILL) {
-                DBG_PRINTF("CB_%d SIGKILLed! (probably by AFL)\n", died_cb_i);
-            } else if (WTERMSIG(died_cb_status) == SIGUSR2) {
-                DBG_PRINTF("CB_%d killed via SIGUSR2 (probably by us, sending this all around)\n", died_cb_i);
+            if (WTERMSIG(died_cb_status) == SIGUSR2) {
+                DBG_PRINTF("CB_%d killed via SIGUSR2 (probably by us or AFL timer, sending this all around)\n", died_cb_i);
             } else DBG_PRINTF("CB_%d terminated by signal %d!\n", died_cb_i, WTERMSIG(died_cb_status));
             if ((aggregate_status == -1) || WIFEXITED(aggregate_status)) {
                 aggregate_status = died_cb_status;
