@@ -1,3 +1,17 @@
+To use:
+
+    git clone cgc/multiafl
+    make -j  # Will also checkout branch multicb_afl of cgc/qemu
+    cd afl
+    ./afl-fuzz {-i, -t, ...} -Q CB0 [CB1] [CB2] ...
+
+If samples are available, you can also `make -j check`. See [fakeforksrv/Makefile](fakeforksrv/Makefile).
+
+
+How it works
+============
+
+
 Basically:
 
     AFL  <-- forksrv protocol -->  fakeforksrv  <-- modif. forksrv protocol -->  QEMU forksrv for CB_0
