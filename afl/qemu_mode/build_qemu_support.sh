@@ -16,7 +16,7 @@
 #
 # This script downloads, patches, and builds a version of QEMU with
 # minor tweaks to allow non-instrumented binaries to be run under
-# afl-fuzz. 
+# afl-fuzz.
 #
 # The modifications reside in patches/*. The standalone QEMU binary
 # will be written to ../afl-qemu-trace.
@@ -88,7 +88,7 @@ else
     QEMU_DIR=multicb-qemu
     rm -rf $QEMU_DIR
     echo "[*] Cloning our multi-CB QEMU branch..."
-    git clone --branch multicb_afl --depth=0 git@git.seclab.cs.ucsb.edu:cgc/qemu.git $QEMU_DIR || exit 1
+    git clone --branch multicb_afl --depth=1 git@git.seclab.cs.ucsb.edu:cgc/qemu.git $QEMU_DIR || exit 1
     echo "[+] Checked out."
     cd $QEMU_DIR || exit 1
     echo "[*] Configuring QEMU..."

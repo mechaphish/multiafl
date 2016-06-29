@@ -8,6 +8,14 @@ To use:
 If samples are available, you can also `make -j check`. See [fakeforksrv/Makefile](fakeforksrv/Makefile).
 
 
+Dependencies
+============
+
+```
+sudo apt-get install gcc-multilib
+```
+
+
 How it works
 ============
 
