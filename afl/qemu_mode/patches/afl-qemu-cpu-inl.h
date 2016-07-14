@@ -230,7 +230,8 @@ void afl_forkserver(CPUArchState *env) {
     if (msghdr.msg_controllen != CMSG_LEN(sizeof(int)*num_fds))
       errx(-11, "Unexpected number of socketpair fds passed");
     int* cbsockets = (int*) CMSG_DATA(cmsg);
-    for (int i = 0; i < num_fds; i++) {
+    int i;
+    for (i = 0; i < num_fds; i++) {
         // The fds we get can be on the wrong number...
         if (cbsockets[i] == (3+1)) continue;
         // ...so if wrong move them out of the way...
@@ -240,7 +241,7 @@ void afl_forkserver(CPUArchState *env) {
         close(cbsockets[i]);
         cbsockets[i] = newfd;
     }
-    for (int i = 0; i < num_fds; i++) {
+    for (i = 0; i < num_fds; i++) {
       if (cbsockets[i] == (3+i)) continue;
       // ...and then dup to the right one
       int newfd = TEMP_FAILURE_RETRY(fcntl(cbsockets[i], F_DUPFD, 3+i));
@@ -314,7 +315,7 @@ void afl_forkserver(CPUArchState *env) {
     /* Parent. */
 
     close(TSL_FD);
-    for (int i = 0; i < num_fds; i++) // ADDED: new children will need new ones /////
+    for (i = 0; i < num_fds; i++) // ADDED: new children will need new ones /////
         close(3+i);
     if (test_connection != -1)
         close(test_connection);
