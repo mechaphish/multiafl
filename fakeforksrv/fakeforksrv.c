@@ -23,6 +23,20 @@
 #define V(x) if (unlikely(!(x)))   errx(-9, __FILE__ ":" VAL_TO_STR(__LINE__) " %s, it's not %s", __PRETTY_FUNCTION__, #x)
 #define VE(x) if (unlikely(!(x))) err(-9, __FILE__ ":" VAL_TO_STR(__LINE__) " %s, it's not %s", __PRETTY_FUNCTION__, #x)
 
+#define FATAL(x...) do { \
+    puts(x); \
+    exit(1); \
+  } while (0)
+
+#define alloc_printf(_str...) ({ \
+    char * _tmp; \
+    size_t _len = snprintf(NULL, 0, _str); \
+    if (_len < 0) FATAL("Whoa, snprintf() fails?!"); \
+    _tmp = malloc(_len + 1); \
+    snprintf((char*)_tmp, _len + 1, _str); \
+    _tmp; \
+  })
+
 #ifdef DEBUG
 # define DBG_PRINTF(...) fprintf(stderr, "FAKEFORKSRV: "  __VA_ARGS__)
 #else
@@ -54,12 +68,23 @@ static void sigchld_from_forksrv(int sig, siginfo_t *info, void *ctx)
     sigkill_entire_group();
 }
 
+char *multicb_qemu_path = NULL;
 
 int main(int argc, char *argv[])
 {
     struct stat multicb_qemu_filestats;
-    if (stat(MULTICB_QEMU_PATH, &multicb_qemu_filestats) != 0)
-        err(88, "Could not stat MULTICB_QEMU_PATH = '%s'!", MULTICB_QEMU_PATH);
+    char *tmp = NULL;
+
+    tmp = getenv("AFL_PATH");
+
+    if (tmp) {
+        multicb_qemu_path = alloc_printf("%s/multicb-qemu", tmp);
+    } else {
+        err(88, "Could not getenv(\"AFL_PATH\") = '%s'!", tmp);
+    }
+
+    if (stat(multicb_qemu_path, &multicb_qemu_filestats) != 0)
+        err(88, "Could not stat multicb_qemu_path = '%s'!", multicb_qemu_path);
     V(S_ISREG(multicb_qemu_filestats.st_mode));
     V((multicb_qemu_filestats.st_mode & S_IXUSR) == S_IXUSR);
 
@@ -183,16 +208,16 @@ int main(int argc, char *argv[])
             execl(
 #if defined(SPAWN_IN_GDB)
                     "/usr/bin/xterm", "xterm-for-gdb", "-e", "gdb", "--args",
-                    MULTICB_QEMU_PATH,
+                    multicb_qemu_path,
 #elif defined(SPAWN_IN_XTERM)
                     "/usr/bin/xterm", "xterm-for-qemu", "-e",
-                    MULTICB_QEMU_PATH,
+                    multicb_qemu_path,
 #else
-                    MULTICB_QEMU_PATH, MULTICB_QEMU_PATH,
+                    multicb_qemu_path, multicb_qemu_path,
 #endif
                     "-multicb_i", program_i_str, "-multicb_count", program_count_str,
                     programs[i], NULL);
-            err(-2, "Could not exec qemu (forkserver) %s", MULTICB_QEMU_PATH);
+            err(-2, "Could not exec qemu (forkserver) %s", multicb_qemu_path);
         } else {
             close(ctl_pipe[0]); close(st_pipe[1]); close(fdpassers[0]);
             qemuforksrv_ctl_fd[i] = ctl_pipe[1];

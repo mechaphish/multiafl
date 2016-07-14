@@ -13,6 +13,7 @@ CFLAGS += -DMULTICB_QEMU_PATH='"$(MULTICB_QEMU_PATH)"'
 
 all: fakeforksrv run_via_fakeforksrv
 	cp $(CURDIR)/fakeforksrv $(CURDIR)/../afl/
+	cp $(CURDIR)/multicb-qemu $(CURDIR)/../afl/
 
 
 .PHONY: clean all check install
