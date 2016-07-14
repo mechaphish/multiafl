@@ -7335,7 +7335,7 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
     cp = alloc_printf("%s/fakeforksrv", tmp);
 
     if (access(cp, X_OK))
-      FATAL("Unable to find '%s'", tmp);
+      FATAL("Unable to find '%s'", cp);
 
     target_path = new_argv[0] = cp;
     return new_argv;
