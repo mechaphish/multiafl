@@ -104,8 +104,8 @@ echo "[+] Build process successful!"
 
 echo "[*] Copying binary..."
 
-cp -f "i386-linux-user/qemu-i386" "../../../fakeforksrv/multicb-qemu" || exit 1
-echo "[+] Successfully created '../../../fakeforksrv/multicb-qemu'."
+cp -f "i386-linux-user/qemu-i386" "../../multicb-qemu" || exit 1
+echo "[+] Successfully created '../../multicb-qemu'."
 
 echo "[+] All set, you should now be able to use it together with fakeforksrv!"
 
