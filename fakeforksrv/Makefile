@@ -6,26 +6,23 @@ CFLAGS := -O3 -march=core2
 CFLAGS += -m32 -std=gnu99 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
 
 SAMPLES_DIR := ../../../samples/
-
-MULTICB_QEMU_PATH := $(CURDIR)/multicb-qemu
-CFLAGS += -DMULTICB_QEMU_PATH='"$(MULTICB_QEMU_PATH)"'
+AFL_PATH := $(CURDIR)/../afl/
 
 
 all: fakeforksrv run_via_fakeforksrv
-	cp $(CURDIR)/fakeforksrv $(CURDIR)/../afl/
+	cp "$(CURDIR)/fakeforksrv" "$(AFL_PATH)/"
 
 
 .PHONY: clean all check install
 clean:
 	-rm -f fakeforksrv run_via_fakeforksrv
-	-rm -f $(CURDIR)/../afl/fakeforksrv
+	-rm -f "$(AFL_PATH)/fakeforksrv"
 
 check-cs-%: all
-	[ -x "$(MULTICB_QEMU_PATH)" ]
-	$(CURDIR)/check-cs.sh $*
+	[ -x "$(AFL_PATH)/multicb-qemu" ]
+	AFL_PATH="$(AFL_PATH)" "$(CURDIR)/check-cs.sh" $*
 
 check: \
-check-cs-EAGLE_00004 \
 check-cs-EAGLE_00004 \
 check-cs-NRFIN_00006 \
 check-cs-YAN01_00009 \

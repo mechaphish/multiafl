@@ -30,7 +30,7 @@
 
 #define alloc_printf(_str...) ({ \
     char * _tmp; \
-    size_t _len = snprintf(NULL, 0, _str); \
+    int _len = snprintf(NULL, 0, _str); \
     if (_len < 0) FATAL("Whoa, snprintf() fails?!"); \
     _tmp = malloc(_len + 1); \
     snprintf((char*)_tmp, _len + 1, _str); \

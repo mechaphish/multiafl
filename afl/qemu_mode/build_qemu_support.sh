@@ -92,7 +92,7 @@ else
     echo "[+] Checked out."
     cd $QEMU_DIR || exit 1
     echo "[*] Configuring QEMU..."
-    ./cgc_configure_opt
+    ./cgc_configure_afl_opt
     echo "[+] Configuration complete."
 fi
 
@@ -104,7 +104,8 @@ echo "[+] Build process successful!"
 
 echo "[*] Copying binary..."
 
-cp -f "i386-linux-user/qemu-i386" "../../multicb-qemu" || exit 1
+rm -f "../../multicb-qemu"
+cp "i386-linux-user/qemu-i386" "../../multicb-qemu" || exit 1
 echo "[+] Successfully created '../../multicb-qemu'."
 
 echo "[+] All set, you should now be able to use it together with fakeforksrv!"

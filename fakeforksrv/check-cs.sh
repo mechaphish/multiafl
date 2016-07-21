@@ -4,6 +4,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PATH="$PATH:../../../darpa/interact/cb-testing/"
 PORT=$(( 2000 + ($RANDOM % 3000) ))
 
+export AFL_PATH=${AFL_PATH-$SCRIPT_DIR/../afl}
+
 POLLS_DIR_2=
 
 if (( $# > 1 )); then
