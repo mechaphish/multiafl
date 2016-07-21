@@ -39,6 +39,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <getopt.h>
+
 #include "signals.h"
 #include "sockets.h"
 #include "utils.h"
@@ -50,10 +52,18 @@ int monitor_process;
 
 volatile unsigned long num_children;
 
+char *seed = NULL;
 
 static void set_core_size(int size) {
     // Was in resources.c
-    struct rlimit rlim = {size, size};
+    struct rlimit rlim;
+    if (size == -1) {
+        size = (int) RLIM_INFINITY;
+    }
+
+    rlim.rlim_cur = size;
+    rlim.rlim_max = size;
+
     VERIFY(setrlimit, RLIMIT_CORE, &rlim);
 }
 
@@ -65,7 +75,10 @@ static void start_program(const char *program, int program_i, int program_count)
     DBG_PRINTF("pid=%d CB_%d program=%s\n", getpid(), program_i, program);
     /* Modified to inherit environment, but fixed argv */
     VERIFY(prctl, PR_SET_DUMPABLE, 1, 0, 0, 0); // Won't necessarily create the core dump (use set_core_size)
-    VERIFY(execl, program, program, (char *) NULL);
+    if (seed) {
+        VERIFY(execl, program, program, seed, (char *) NULL);
+    } else
+        VERIFY(execl, program, program, (char *) NULL);
     (void) program_i; (void) program_count;
 }
 
@@ -120,7 +133,7 @@ static void handle(const int program_count, const char **programs) {
 }
 
 int main(int argc, char **argv) {
-    int core_size = 0; // DEFAULTED TO 0 (still dumpable, but no core dump)
+    int core_size = -1;
     int i;
     num_children = 0;
 
@@ -150,20 +163,36 @@ int main(int argc, char **argv) {
             program_count = cbs_from_env_count;
             programs = cbs_from_env;
         } else {
-            fprintf(stderr, "Usage: %s cb0 [cb1] [...]\n       CB_0=cb0 [CB_1=cb1] [...up to 50] [FORCE_CB_ENV=1] %s\n", argv[0], argv[0]);
+            fprintf(stderr, "Usage: %s [-c coresize] [-s seed] cb0 [cb1] [...]\n       CB_0=cb0 [CB_1=cb1] [...up to 50] [FORCE_CB_ENV=1] %s\n", argv[0], argv[0]);
             exit(1);
         }
     } else {
-        program_count = argc - 1;
-        programs = (const char **) argv + 1;
+        int opt;
+        while ((opt = getopt(argc, argv, "+c:s:")) > 0) 
+            switch (opt) {
+
+                case 'c':
+                    core_size = atoi(optarg);
+                    break;
+                case 's':
+                    seed = malloc(strlen(optarg) + 6);
+                    if (!seed) {
+                        perror("malloc");
+                        exit(1);
+                    }
+                    sprintf(seed, "seed=%s", optarg);
+                    break;
+            }
+
+        program_count = argc - optind;
+        programs = (const char **) argv + optind;
     }
 #endif
     DBG_PRINTF("Running %d CBs:", program_count);
     for (i = 0; i < program_count; i++)
         DBG_PRINTF("   CB_%d = %s\n", i, programs[i]);
 
-    if (core_size != -1)
-        set_core_size(core_size);
+    set_core_size(core_size);
 
     setup_signals();
 
