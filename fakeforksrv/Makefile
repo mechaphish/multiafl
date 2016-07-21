@@ -27,8 +27,10 @@ check-cs-EAGLE_00004 \
 check-cs-NRFIN_00006 \
 check-cs-YAN01_00009 \
 check-cs-KPRCA_00016 \
-check-cs-KPRCA_00024 \
 check-cs-KPRCA_00048 \
 check-cs-LUNGE_00005 \
 check-cs-CADET_00003
 	@echo "All tests passed :)"
+
+
+#check-cs-KPRCA_00024 \

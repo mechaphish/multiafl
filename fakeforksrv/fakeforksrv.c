@@ -349,8 +349,15 @@ int main(int argc, char *argv[])
                 // Regular _terminate().
                 // No need to propagate, and use as global status only if no signals.
                 DBG_PRINTF("Regular exit for CB_%d (ret: %d)\n", died_cb_i, WEXITSTATUS(died_cb_status));
+                if (WEXITSTATUS(died_cb_status) == 146) {
+                    // Note: exit(146) is special, it's for the double-EOF heuristic.
+                    //       Means we should wind down everything, but report still success to AFL.
+                    DBG_PRINTF("DOUBLE_EOF exit heuristic on CB_%d. Killing all other CBs with SIGUSR2\n", died_cb_i);
+                    killpg(0, SIGUSR2);
+                }
                 if (aggregate_status == -1)
                     aggregate_status = died_cb_status;
+                    // TODO: preference to 146 for debugging?
                 continue;
             }
             // Terminated by a signal.
