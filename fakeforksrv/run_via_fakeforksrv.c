@@ -129,6 +129,13 @@ int main(int argc, char **argv)
 
         argv[0] = "fakeforksrv";
         argv[argc] = NULL;
+
+        /* Mandatory after Pizza's changes */
+        char afl_path[300];
+        VE(getcwd(afl_path, 280) != NULL);
+        strcat(afl_path, "/../afl");
+        VE(setenv("AFL_PATH", afl_path, 0 /* no overwrite */) == 0);
+
         execv("./fakeforksrv", argv);
         err(-2, "Could not exec ./fakeforksrv");
     } else {
