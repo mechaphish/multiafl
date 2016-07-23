@@ -10,10 +10,8 @@ CFLAGS += -m32 -std=gnu99 -g -g3 -ggdb -gdwarf-4 -Wall -Wextra
 #CFLAGS += -static
 
 
-EXAMPLES_DIR := /usr/share/cgc-challenges
-SAMPLES_DIR := $(CURDIR)/../../../samples
-#EXAMPLES_DIR := $(SAMPLES_DIR)/examples
-CQE_CHALLENGES_DIR := $(SAMPLES_DIR)/cqe-challenges
+EXAMPLES_DIR := /usr/share/cgc-sample-challenges/examples
+CQE_CHALLENGES_DIR := /usr/share/cgc-sample-challenges/cqe-challenges
 
 all: fakesingle hardcoded_CADET_00003 hardcoded_LUNGE_00005 hardcoded_EAGLE_00004 hardcoded_NRFIN_00006
 
@@ -44,15 +42,11 @@ clean:
 check: all
 	which cb-test
 	@echo "Testing as wrapper on a single binary"
-	[ -f "$(EXAMPLES_DIR)/CADET_00003/poller/for-release/GEN_00000.xml" ]
 	! cb-test --negotiate --cb CADET_00003 --directory "$(CURDIR)" --xml_dir "$(EXAMPLES_DIR)/CADET_00003/poller/for-release/" --wrapper "$(CURDIR)/fakesingle" | egrep 'failed[^0-9]+[1-9]+'
 	@echo "Testing with hardcoded CB names"
 	! PATH=".:$$PATH" cb-test --negotiate --cb hardcoded_CADET_00003 --directory "$(CURDIR)" --xml_dir "$(EXAMPLES_DIR)/CADET_00003/poller/for-release/" --wrapper /usr/bin/env | egrep 'failed[^0-9]+[1-9]+'
-	[ -f "$(EXAMPLES_DIR)/LUNGE_00005/poller/for-release/GEN_00000.xml" ]
 	! PATH=".:$$PATH" cb-test --negotiate --cb hardcoded_LUNGE_00005 --directory "$(CURDIR)" --xml_dir "$(EXAMPLES_DIR)/LUNGE_00005/poller/for-release/" --wrapper /usr/bin/env | egrep 'failed[^0-9]+[1-9]+'
-	[ -f "$(EXAMPLES_DIR)/EAGLE_00004/poller/for-release/POLL_00000.xml" ]
 	! PATH=".:$$PATH" cb-test --negotiate --cb hardcoded_EAGLE_00004 --directory "$(CURDIR)" --xml_dir "$(EXAMPLES_DIR)/EAGLE_00004/poller/for-release/" --wrapper /usr/bin/env | egrep 'failed[^0-9]+[1-9]+'
 	@echo "Testing on a CQE challenge set"
-	[ -f "$(CQE_CHALLENGES_DIR)/NRFIN_00006/poller/for-release/GEN_00000.xml" ]
 	! PATH=".:$$PATH" cb-test --cb hardcoded_NRFIN_00006 --directory "$(CURDIR)" --xml_dir "$(CQE_CHALLENGES_DIR)/NRFIN_00006/poller/for-release/" --wrapper /usr/bin/env | egrep 'failed[^0-9]+[1-9]+'
 	@echo "All tests passed :)"
