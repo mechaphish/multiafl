@@ -137,6 +137,8 @@ int main(int argc, char **argv) {
     int i;
     num_children = 0;
 
+    setsid(); // So kill on process group works on this CB only
+
     //// Keep in sync with fakeforksrv.c 
     int program_count;
     const char **programs;
