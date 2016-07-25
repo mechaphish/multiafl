@@ -131,14 +131,23 @@ int main(int argc, char **argv)
         argv[0] = "fakeforksrv";
         argv[argc] = NULL;
 
-        /* Mandatory after Pizza's changes */
-        char afl_path[300];
-        VE(getcwd(afl_path, 280) != NULL);
-        strcat(afl_path, "/../afl");
-        VE(setenv("AFL_PATH", afl_path, 0 /* no overwrite */) == 0);
-
-        execv("./fakeforksrv", argv);
-        err(-2, "Could not exec ./fakeforksrv");
+        if (getenv("AFL_PATH") == NULL) {
+            /* Run from the current directory */
+            /* Must also set AFL_PATH, as it's mandatory after Pizza's changes */
+            char afl_path[300];
+            VE(getcwd(afl_path, 280) != NULL);
+            strcat(afl_path, "/../afl");
+            VE(setenv("AFL_PATH", afl_path, 0 /* no overwrite */) == 0);
+            execv("./fakeforksrv", argv);
+            err(-2, "Could not exec ./fakeforksrv");
+        } else {
+            /* Run from AFL_PATH */
+            char fakeforksrv_path[400];
+            strcpy(fakeforksrv_path, getenv("AFL_PATH"));
+            strcat(fakeforksrv_path, "/fakeforksrv");
+            execv(fakeforksrv_path, argv);
+            err(-2, "Could not exec $AFL_PATH/fakeforksrv (%s)", fakeforksrv_path);
+        }
     } else {
         close(ctl_pipe[0]); close(st_pipe[1]);
         ctl = ctl_pipe[1];
