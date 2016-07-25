@@ -14,6 +14,7 @@ EXAMPLES_DIR := /usr/share/cgc-sample-challenges/examples
 CQE_CHALLENGES_DIR := /usr/share/cgc-sample-challenges/cqe-challenges
 
 all: fakesingle hardcoded_CADET_00003 hardcoded_LUNGE_00005 hardcoded_EAGLE_00004 hardcoded_NRFIN_00006
+	cp "$(CURDIR)/fakesingle" "$(CURDIR)/../afl/"
 
 fakesingle: $(C_FILES)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
@@ -38,6 +39,7 @@ hardcoded_NRFIN_00006: $(C_FILES)
 .PHONY: clean all check install
 clean:
 	-rm -f fakesingle hardcoded_*
+	-rm -f "$(CURDIR)/../afl/fakesingle"
 
 check: all
 	which cb-test
