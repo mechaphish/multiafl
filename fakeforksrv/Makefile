@@ -11,12 +11,14 @@ AFL_PATH := $(CURDIR)/../afl/
 
 all: fakeforksrv run_via_fakeforksrv
 	cp "$(CURDIR)/fakeforksrv" "$(AFL_PATH)/"
+	cp "$(CURDIR)/run_via_fakeforksrv" "$(AFL_PATH)/"
 
 
 .PHONY: clean all check install
 clean:
 	-rm -f fakeforksrv run_via_fakeforksrv
 	-rm -f "$(AFL_PATH)/fakeforksrv"
+	-rm -f "$(AFL_PATH)/run_via_fakeforksrv"
 
 check-cs-%: all
 	[ -x "$(AFL_PATH)/multicb-qemu" ]

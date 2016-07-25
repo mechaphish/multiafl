@@ -97,7 +97,7 @@ all_done: test_build
 clean:
 	rm -f $(PROGS) afl-as as afl-g++ afl-clang afl-clang++ *.o *~ a.out core core.[1-9][0-9]* *.stackdump test .test test-instr .test-instr0 .test-instr1 qemu_mode/qemu-2.3.0.tar.bz2 afl-qemu-trace
 	rm -rf out_dir qemu_mode/qemu-2.3.0
-	rm -f multicb-qemu fakeforksrv fakesingle
+	rm -f multicb-qemu fakeforksrv fakesingle run_via_fakeforksrv
 	rm -f ../fakeforksrv/multicb-qemu
 	$(MAKE) -C llvm_mode clean
 

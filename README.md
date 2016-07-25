@@ -8,6 +8,25 @@ To use:
 If samples are available, you can also `make -j check`. See [fakeforksrv/Makefile](fakeforksrv/Makefile).
 
 
+The commands
+============
+
+Outside VMs (QEMU):
+  - `afl-fuzz`
+  - `afl-showmap`
+  - `run_via_fakeforksrv`
+
+In-VM:
+  - `fakesingle`
+
+
+`fakeforksrv` + `multicb-qemu` are the meat
+You need to talk the AFL forksrv protocol with fakeforksrv. You can do it either via AFL (obviously) or via `run_via_fakeforksrv`.
+
+`fakesingle` is mainly for testing, so we are sure we "got" the fd stuff OK independently from qemu or AFL.
+
+
+
 Dependencies
 ============
 
