@@ -106,6 +106,7 @@ int main(int argc, char **argv)
     setup_shm();
 
     // Adapted from init_forkserver (afl-fuzz.c)
+    // KEEP IN SYNC WITH afl-showmap
     int st_pipe[2], ctl_pipe[2];
     if (pipe(st_pipe) || pipe(ctl_pipe))
         err(-90, "pipe() failed");

@@ -46,6 +46,27 @@
 #include <sys/types.h>
 #include <sys/resource.h>
 
+
+
+_Static_assert(FORKSRV_FD == 198, "Altered FORKSRV_FD? fakeforksrv has it hardcoded");
+
+// My own utils, like the always-on fancy assert()
+#include <err.h>
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#define VAL_TO_STR_intern(x) #x
+#define VAL_TO_STR(x) VAL_TO_STR_intern(x)
+#define V(x) if (unlikely(!(x)))   errx(-9, __FILE__ ":" VAL_TO_STR(__LINE__) " %s, it's not %s", __PRETTY_FUNCTION__, #x)
+#define VE(x) if (unlikely(!(x))) err(-9, __FILE__ ":" VAL_TO_STR(__LINE__) " %s, it's not %s", __PRETTY_FUNCTION__, #x)
+#ifdef DEBUG
+# define DBG_PRINTF(...) fprintf(stderr, "RUNNER: " __VA_ARGS__)
+#else
+# define DBG_PRINTF(...) do { ; } while(0)
+#endif
+
+
+
+
 static s32 child_pid;                 /* PID of the tested program         */
 
 static u8* trace_bits;                /* SHM with instrumentation bitmap   */
@@ -202,8 +223,7 @@ static u32 write_results(void) {
 static void handle_timeout(int sig) {
 
   child_timed_out = 1;
-  if (child_pid > 0) kill(child_pid, SIGKILL);
-
+  if (child_pid > 0) kill(-child_pid, SIGKILL); // Differently from afl-fuzz, it's OK to kill the forkservers too
 }
 
 
@@ -219,52 +239,52 @@ static void run_target(char** argv) {
 
   MEM_BARRIER();
 
-  child_pid = fork();
+  // Adapted from init_forkserver / run_via_fakeforkserver
+  const int CTL_FD = FORKSRV_FD; // The "forkserver protocol" is spoken over these (fixed) int fds
+  const int ST_FD = FORKSRV_FD + 1;
+  int ctl, st; // Local fds to fakeforksrv
+  uint32_t msg;
 
-  if (child_pid < 0) PFATAL("fork() failed");
+  int st_pipe[2], ctl_pipe[2];
+  if (pipe(st_pipe) || pipe(ctl_pipe))
+      err(-90, "pipe() failed");
+  int forksrv_pid = fork();
+  if (forksrv_pid == -1)
+      err(-80, "Could not fork for fakeforksrv");
 
-  if (!child_pid) {
-
-    struct rlimit r;
-
-    if (quiet_mode) {
-
-      s32 fd = open("/dev/null", O_RDWR);
-
-      if (fd < 0 || dup2(fd, 1) < 0 || dup2(fd, 2) < 0) {
-        *(u32*)trace_bits = EXEC_FAIL_SIG;
-        PFATAL("Descriptor initialization failed");
+  if (forksrv_pid == 0) {
+      VE(dup2(ctl_pipe[0], CTL_FD) != -1);
+      VE(dup2(st_pipe[1], ST_FD) != -1);
+      close(ctl_pipe[0]); close(ctl_pipe[1]);
+      close(st_pipe[0]); close(st_pipe[1]);
+      if (quiet_mode) {
+          s32 fd = open("/dev/null", O_RDWR);
+          if (fd < 0 || dup2(fd, 1) < 0 /* || dup2(fd, 2) < 0 */) {
+              *(u32*)trace_bits = EXEC_FAIL_SIG;
+              PFATAL("Descriptor initialization failed");
+          }
+          close(fd);
       }
-
-      close(fd);
-
-    }
-
-    if (mem_limit) {
-
-      r.rlim_max = r.rlim_cur = ((rlim_t)mem_limit) << 20;
-
-#ifdef RLIMIT_AS
-
-      setrlimit(RLIMIT_AS, &r); /* Ignore errors */
-
-#else
-
-      setrlimit(RLIMIT_DATA, &r); /* Ignore errors */
-
-#endif /* ^RLIMIT_AS */
-
-    }
-
-    r.rlim_max = r.rlim_cur = 0;
-    setrlimit(RLIMIT_CORE, &r); /* Ignore errors */
-
-    execv(target_path, argv);
-
-    *(u32*)trace_bits = EXEC_FAIL_SIG;
-    exit(0);
-
+      execv(target_path, argv);
+      err(-2, "Could not exec %s", target_path);
+  } else {
+      close(ctl_pipe[0]); close(st_pipe[1]);
+      ctl = ctl_pipe[1];
+      st = st_pipe[0];
+      DBG_PRINTF("Waiting for fakeforksrv to tell us that it's ready...\n");
+      if (read(st, &msg, 4) != 4)
+          err(-20, "Could not read back from the status pipe, something went wrong");
+      V(msg == 0xC6CAF1F5); // Just as a sanity check
+      DBG_PRINTF( "OK, fakeforksrv ready :)\n");
   }
+
+  msg = 0;
+  VE(write(ctl, &msg, 4) == 4);
+
+  DBG_PRINTF("Waiting for the fork() pid report...\n");
+  pid_t child_pid;
+  VE(read(st, &child_pid, 4) == 4);
+  DBG_PRINTF("fakeforksrv reports (QEMU CB_0) pid %d...\n", child_pid);
 
   /* Configure timeout, wait for child, cancel timeout. */
 
@@ -278,7 +298,21 @@ static void run_target(char** argv) {
 
   setitimer(ITIMER_REAL, &it, NULL);
 
-  if (waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
+
+  DBG_PRINTF("Waiting for the status report...\n");
+  if (read(st, &status, 4) != 4)
+      err(-10, "Could not read the status report from fakeforksrv! errno, if not just exit");
+  if (WIFEXITED(status)) {
+      DBG_PRINTF("Regular exit(%d)\n", WEXITSTATUS(status));
+  } else {
+      V(WIFSIGNALED(status));
+      if (WTERMSIG(status) == SIGKILL) {
+          DBG_PRINTF("reported a SIGKILL!\n");
+      } else if (WTERMSIG(status) == SIGUSR2) {
+          DBG_PRINTF("!!! ERROR: reported a SIGUSR2! (should be hidden!)\n");
+      } else DBG_PRINTF("reported signal %d\n", WTERMSIG(status));
+  }
+  killpg(-forksrv_pid, SIGTERM);
 
   child_pid = 0;
   it.it_value.tv_sec = 0;
@@ -321,7 +355,7 @@ static void handle_stop_sig(int sig) {
 
   stop_soon = 1;
 
-  if (child_pid > 0) kill(child_pid, SIGKILL);
+  if (child_pid > 0) kill(-child_pid, SIGKILL);
 
 }
 
@@ -432,7 +466,7 @@ static void usage(u8* argv0) {
 
   show_banner();
 
-  SAYF("\n%s [ options ] -- /path/to/target_app [ ... ]\n\n"
+  SAYF("\n%s [ options ] -Q /path/to/CB_0 [/path/to/CB_1] [ ... ]\n\n"
 
        "Required parameters:\n\n"
 
@@ -450,9 +484,9 @@ static void usage(u8* argv0) {
        "  -e            - show edge coverage only, ignore hit counts\n\n"
 
        "This tool displays raw tuple data captured by AFL instrumentation.\n"
-       "For additional help, consult %s/README.\n\n" cRST,
+       "*** THIS ONE IS FOR multicb. Will use fakeforksrv ***\n\n" cRST,
 
-       argv0, MEM_LIMIT, doc_path);
+       argv0, MEM_LIMIT);
 
   exit(1);
 
@@ -519,10 +553,10 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
   char** new_argv = ck_alloc(sizeof(char*) * (argc + 4));
   u8 *tmp, *cp, *rsl, *own_copy;
 
-  memcpy(new_argv + 3, argv + 1, sizeof(char*) * argc);
+  memcpy(new_argv + 2, argv + 1, sizeof(char*) * argc);
 
-  new_argv[2] = target_path;
-  new_argv[1] = "--";
+  new_argv[1] = target_path;
+  //new_argv[1] = "--"; REMOVED FOR SIMPLICITY IN FAKEFORKSRV
 
   /* Now we need to actually find qemu for argv[0]. */
 
@@ -530,10 +564,10 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
 
   if (tmp) {
 
-    cp = alloc_printf("%s/afl-qemu-trace", tmp);
+    cp = alloc_printf("%s/fakeforksrv", tmp);
 
     if (access(cp, X_OK))
-      FATAL("Unable to find '%s'", tmp);
+      FATAL("Unable to find '%s'", cp);
 
     target_path = new_argv[0] = cp;
     return new_argv;
@@ -547,7 +581,9 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
 
     *rsl = 0;
 
-    cp = alloc_printf("%s/afl-qemu-trace", own_copy);
+    cp = alloc_printf("%s/fakeforksrv", own_copy);
+    /* Mandatory after Pizza's changes */
+    VE(setenv("AFL_PATH", own_copy, 0) == 0);
     ck_free(own_copy);
 
     if (!access(cp, X_OK)) {
@@ -559,14 +595,7 @@ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
 
   } else ck_free(own_copy);
 
-  if (!access(BIN_PATH "/afl-qemu-trace", X_OK)) {
-
-    target_path = new_argv[0] = BIN_PATH "/afl-qemu-trace";
-    return new_argv;
-
-  }
-
-  FATAL("Unable to find 'afl-qemu-trace'.");
+  FATAL("Unable to find 'fakeforksrv'.");
 
 }
 
@@ -595,6 +624,8 @@ int main(int argc, char** argv) {
       case 'm': {
 
           u8 suffix = 'M';
+
+          errx(88, "DID NOT IMPLEMENT mem_limit");
 
           if (mem_limit_given) FATAL("Multiple -m options not supported");
           mem_limit_given = 1;
@@ -704,7 +735,7 @@ int main(int argc, char** argv) {
   if (qemu_mode)
     use_argv = get_qemu_argv(argv[0], argv + optind, argc - optind);
   else
-    use_argv = argv + optind;
+    FATAL("multiafl needs -Q!");
 
   run_target(use_argv);
 
