@@ -60,6 +60,7 @@
 /* This is equivalent to afl-as.h: */
 
 static unsigned char *afl_area_ptr;
+unsigned char *extra_shm = NULL; // ADDED FOR MULTI-CB (see syscall.c)
 
 /* Exported variables populated by the code patched into elfload.c: */
 
@@ -149,6 +150,8 @@ void afl_setup(void) {
 
     if (afl_area_ptr == (void*)-1)
         err(-20, "afl_area_ptr = shmat(shm_id = %d)", shm_id);
+
+    extra_shm = afl_area_ptr + MAP_SIZE; // ADDED FOR MULTI-CB
 
     /* With AFL_INST_RATIO set to a low value, we want to touch the bitmap
        so that the parent doesn't give up on us. */

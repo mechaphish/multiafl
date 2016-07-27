@@ -64,7 +64,7 @@ static int shm_id;
 static void remove_shm() { shmctl(shm_id, IPC_RMID, NULL); }
 static void setup_shm()
 {
-    VE((shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600)) != -1);
+    VE((shm_id = shmget(IPC_PRIVATE, MAP_SIZE + EXTRA_SHM_SIZE, IPC_CREAT | IPC_EXCL | 0600)) != -1);
     atexit(remove_shm);
     char shm_str[100];
     V(snprintf(shm_str, 100, "%d", shm_id) < 100);
@@ -258,6 +258,12 @@ int main(int argc, char **argv)
         if (trace_bits[i])
             nzc++;
     fprintf(stderr, "Count of non-zero bytes in trace bitmap: %d (%d%% map)\n", nzc, nzc*100/MAP_SIZE);
+
+    nzc = 0;
+    for (int i = 0; i < EXTRA_SHM_SIZE; i++)
+        if (trace_bits[MAP_SIZE+i])
+            nzc++;
+    fprintf(stderr, "Count of non-zero bytes in the extra shared memory: %d\n", nzc);
 
     fprintf(stderr, "Total signaled: %d\n", signaled_count);
     return (signaled_count > 0) ? -1 : 0;
