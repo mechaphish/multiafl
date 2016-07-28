@@ -10,4 +10,5 @@
 /afl-tmin
 /as
 /fakeforksrv
+/run_via_fakeforksrv
 /multicb-qemu
