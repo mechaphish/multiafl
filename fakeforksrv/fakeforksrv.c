@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -5,6 +6,8 @@
 #include <stdint.h>
 #include <assert.h>
 #include <err.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -171,6 +174,31 @@ int main(int argc, char *argv[])
     char program_i_str[10], program_count_str[10]; // Arguments for the custom QEMU
     snprintf(program_count_str, 10, "%d", program_count);
 
+
+    // Rough equivalent of the setup_sockpairs (service-launcher / fakesingle)
+    // Creates PERMANENT socketpairs, emptied after every run -- should be much faster (thanks Yan!)
+    for (int i = 0; i < program_count; i++) {
+        int perm_sockets[2];
+        VE(socketpair(AF_UNIX, SOCK_STREAM, 0, perm_sockets) == 0);
+
+        // Must move them to the right fd number
+        int newfd, targetfd = 3+2*i;
+        if (perm_sockets[0] != targetfd) {
+            newfd = TEMP_FAILURE_RETRY(fcntl(perm_sockets[0], F_DUPFD, targetfd));
+            if (newfd != targetfd)
+                err(-12, "Could not set file descriptor %d, probably already open! I need it for a multi-CB socketpairs. fcntls() = %d", targetfd, newfd);
+            VE(close(perm_sockets[0]) == 0);
+        }
+
+        targetfd++;
+        if (perm_sockets[1] != targetfd) {
+            newfd = TEMP_FAILURE_RETRY(fcntl(perm_sockets[1], F_DUPFD, targetfd));
+            if (newfd != targetfd)
+                err(-12, "Could not set file descriptor %d, probably already open! I need it for a multi-CB socketpairs. fcntls() = %d", targetfd, newfd);
+            VE(close(perm_sockets[1]) == 0);
+        }
+    }
+
     for (int i = 0; i < program_count; i++) {
         // Adapted from init_forkserver (afl-fuzz.c)
         int st_pipe[2], ctl_pipe[2];
@@ -253,24 +281,6 @@ int main(int argc, char *argv[])
 
         DBG_PRINTF("Forking up!\n");
 
-        // Rough equivalent of the setup_sockpairs (service-launcher / fakesingle)
-        int cbsockets[2*program_count];
-        for (int i = 0; i < program_count; i++)
-            VE(socketpair(AF_UNIX, SOCK_STREAM, 0, &cbsockets[i*2]) == 0);
-
-        // Pass them to the QEMU forkservers (man cmsg)
-        struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(cbsockets)));
-        cmsg->cmsg_type = SCM_RIGHTS;
-        cmsg->cmsg_level = SOL_SOCKET;
-        cmsg->cmsg_len = CMSG_LEN(sizeof(cbsockets));
-        memcpy(CMSG_DATA(cmsg), cbsockets, sizeof(cbsockets));
-        struct msghdr msghdr = {0};
-        msghdr.msg_control = cmsg;
-        msghdr.msg_controllen = cmsg->cmsg_len;
-        DBG_PRINTF("Relaying to the forkservers the socketpairs (controllen = %zu)...\n", msghdr.msg_controllen);
-        for (int i = 0; i < program_count; i++)
-            VE(sendmsg(qemuforksrv_fdpasser[i], &msghdr, 0) != -1);
-
         // Special protocol to allow for cb-test using run_via_fakeforksrv
         // This is not used by AFL
         int connection = -1;
@@ -311,8 +321,8 @@ int main(int argc, char *argv[])
             DBG_PRINTF("QEMU for CB_%d: pid %d...\n", i, qemucb_pid[i]);
         }
 
-        for (int i = 0; i < 2*program_count; i++)
-            close(cbsockets[i]);
+        //for (int i = 0; i < 2*program_count; i++)
+        //    close(cbsockets[i]);
 
         // AFL can now proceed
         // Note: it can kill() the pid we return, thinking it's the running program (timeouts, stop, etc.).
@@ -380,6 +390,32 @@ int main(int argc, char *argv[])
 
         if (connection != -1)
             close(connection);
+
+        // "Empty" the permanent sockets
+        // (Poll for readable or error, read as much as possible.)
+        while (1) {
+            int r;
+            struct timeval notimeout = { 0 };
+            fd_set rfds, efds; FD_ZERO(&rfds); FD_ZERO(&efds);
+            for (int fd = 3; fd < (3+2*program_count); fd++) {
+                FD_SET(fd, &rfds);
+                FD_SET(fd, &efds);
+            }
+            TEMP_FAILURE_RETRY(r = select(1+3+2*program_count, &rfds, NULL, &efds, &notimeout));
+            if (r == -1)
+                err(81, "select() to empty the multi-CB socket pairs");
+            if (r == 0)
+                break; // All empty, we're done with this round and can go on :)
+            for (int fd = 3; fd < (3+2*program_count); fd++)
+                if (FD_ISSET(fd, &efds))
+                    errx(82, "Multi-CB socket %d errored out! Don't know what to do...", fd);
+            for (int fd = 3; fd < (3+2*program_count); fd++)
+                if (FD_ISSET(fd, &rfds)) {
+                    DBG_PRINTF("Doing an 'emptying' read on fd %d...", fd);
+                    unsigned char dummy[255]; // TODO: allow reading more?
+                    VE(read(fd, &dummy, sizeof(dummy)) != -1);
+                }
+        }
 
         // All QEMUs done. Report the aggregate status to AFL and wait for a new fork command.
         DBG_PRINTF("All QEMUs done, reporting status %#x to AFL\n", aggregate_status);

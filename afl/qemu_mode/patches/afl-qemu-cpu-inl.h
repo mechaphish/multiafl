@@ -219,42 +219,11 @@ void afl_forkserver(CPUArchState *env) {
     //       Perhaps I should block/unblock SIGCHLD like service-launcher does?
     if (TEMP_FAILURE_RETRY(read(FORKSRV_FD, &forkcmd, 4)) != 4) exit(2);
 
-    // ADDED: Get the multi-CB socketpairs //////////////////////////////////////////
-    const int FDPASSER_FD = FORKSRV_FD - 2;
-    const size_t num_fds = 2*multicb_count;
-    struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)*num_fds));
-    struct msghdr msghdr = {0};
-    msghdr.msg_control = cmsg;
-    msghdr.msg_controllen = CMSG_SPACE(sizeof(int)*num_fds);
-    if (TEMP_FAILURE_RETRY(recvmsg(FDPASSER_FD, &msghdr, 0)) != 0)
-      err(-9, "recvmsg from FDPASSER_FD");
-    if (cmsg->cmsg_type != SCM_RIGHTS)
-      errx(-10, "Unexpected control message");
-    if (msghdr.msg_controllen != CMSG_LEN(sizeof(int)*num_fds))
-      errx(-11, "Unexpected number of socketpair fds passed");
-    int* cbsockets = (int*) CMSG_DATA(cmsg);
-    int i;
-    for (i = 0; i < num_fds; i++) {
-        // The fds we get can be on the wrong number...
-        if (cbsockets[i] == (3+1)) continue;
-        // ...so if wrong move them out of the way...
-        int newfd = TEMP_FAILURE_RETRY(fcntl(cbsockets[i], F_DUPFD, 50+num_fds));
-        if (newfd == -1)
-            err(-14, "Could not F_DUPFD the %d-th passed fd (%d)! Maybe out of file descriptors?", i, cbsockets[i]);
-        close(cbsockets[i]);
-        cbsockets[i] = newfd;
-    }
-    for (i = 0; i < num_fds; i++) {
-      if (cbsockets[i] == (3+i)) continue;
-      // ...and then dup to the right one
-      int newfd = TEMP_FAILURE_RETRY(fcntl(cbsockets[i], F_DUPFD, 3+i));
-      if (newfd != (3+i))
-        err(-12, "Could not set file descriptor %d, probably it was already open! I need it for multi-CB socketpairs. fcntl() = %d, errno, if any, was", 3+i, newfd);
-      close(cbsockets[i]);
-    }
+    // Note: the multi-CB socketpairs should already be on the right fds!
 
     // ADDED: Extra protocol to allow for cb-test ///////////////////////////////////
     // Note: AFL does not use this
+    const int FDPASSER_FD = FORKSRV_FD - 2;
     int test_connection = -1;
     if (forkcmd == 0xC6CF550C) { // CGC FS SOCket
         struct cmsghdr* cmsg = (struct cmsghdr*) malloc(CMSG_SPACE(sizeof(int)));
@@ -318,8 +287,6 @@ void afl_forkserver(CPUArchState *env) {
     /* Parent. */
 
     close(TSL_FD);
-    for (i = 0; i < num_fds; i++) // ADDED: new children will need new ones /////
-        close(3+i);
     if (test_connection != -1)
         close(test_connection);
 
