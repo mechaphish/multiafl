@@ -1,5 +1,6 @@
 /* Kind of a "fake afl-showmap". Same invocation as fakeforksrv. */
 
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -127,6 +128,8 @@ int main(int argc, char **argv)
             VE(dup2(connpasser_sockets[0], CONNPASSER_FD) != -1);
             close(connpasser_sockets[0]); close(connpasser_sockets[1]);
         }
+
+        VE(prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) == 0);
 
         argv[0] = "fakeforksrv";
         argv[argc] = NULL;

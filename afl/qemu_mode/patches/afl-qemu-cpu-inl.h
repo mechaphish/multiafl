@@ -29,6 +29,7 @@
 #include <assert.h>
 #include <err.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/shm.h>
 #include "../../config.h"
@@ -251,6 +252,8 @@ void afl_forkserver(CPUArchState *env) {
     if (child_pid < 0) exit(4);
 
     if (!child_pid) {
+
+      prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0); // ADDED: general convenience ////////
 
       /* Child process. Close descriptors and run free. */
       

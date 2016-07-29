@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -225,6 +226,8 @@ int main(int argc, char *argv[])
                 close(qemuforksrv_fdpasser[j]);
             }
             close(CONNPASSER_FD);
+
+            VE(prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) == 0);
 
             if (!getenv("LD_BIND_LAZY")) setenv("LD_BIND_NOW", "1", 0);
 
