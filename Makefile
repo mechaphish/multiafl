@@ -2,8 +2,8 @@ all:
 	$(MAKE) -C fakeforksrv
 	$(MAKE) -C afl
 	bash -c "cd '$(CURDIR)/afl/qemu_mode' && ./build_qemu_support.sh"
-	@echo "Skipping the test-only fakesingle."
-	#$(MAKE) -C fakesingle
+	@echo "Note: fakesingle is FOR IN-VM TESTING, it does not use qemu."
+	$(MAKE) -C fakesingle
 clean:
 	$(MAKE) -C fakesingle clean
 	$(MAKE) -C fakeforksrv clean
