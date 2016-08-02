@@ -362,15 +362,15 @@ int main(int argc, char *argv[])
                 // Regular _terminate().
                 // No need to propagate, and use as global status only if no signals.
                 DBG_PRINTF("Regular exit for CB_%d (ret: %d)\n", died_cb_i, WEXITSTATUS(died_cb_status));
+                if (aggregate_status == -1)
+                    aggregate_status = died_cb_status;
                 if (WEXITSTATUS(died_cb_status) == 146) {
                     // Note: exit(146) is special, it's for the double-EOF heuristic.
                     //       Means we should wind down everything, but report still success to AFL.
                     DBG_PRINTF("DOUBLE_EOF exit heuristic on CB_%d. Killing all other CBs with SIGUSR2\n", died_cb_i);
+                    DBG_PRINTF("For reference, raw status was %#x, aggregate_status = %#x (%s)\n", died_cb_status, aggregate_status, WIFEXITED(aggregate_status) ? "regular exit" : "SIGNAL KILL");
                     killpg(0, SIGUSR2);
                 }
-                if (aggregate_status == -1)
-                    aggregate_status = died_cb_status;
-                    // TODO: preference to 146 for debugging?
                 continue;
             }
             // Terminated by a signal.
@@ -381,7 +381,9 @@ int main(int argc, char *argv[])
                 DBG_PRINTF("CB_%d killed via SIGUSR2 (probably by us or AFL timer, sending this all around)\n", died_cb_i);
             } else DBG_PRINTF("CB_%d terminated by signal %d!\n", died_cb_i, WTERMSIG(died_cb_status));
             if ((aggregate_status == -1) || WIFEXITED(aggregate_status)) {
-                aggregate_status = died_cb_status;
+                if ((WTERMSIG(died_cb_status) == SIGUSR2) && (aggregate_status != -1)) {
+                    DBG_PRINTF("Preserving previous exit status %#x (%s), since SIGUSR2 kills are artificial.\n", aggregate_status, WIFEXITED(aggregate_status) ? "regular exit" : "SIGNAL KILL");
+                } else aggregate_status = died_cb_status;
                 DBG_PRINTF("Kill all other CBs with SIGUSR2\n");
                 killpg(0, SIGUSR2);
             }
@@ -421,7 +423,10 @@ int main(int argc, char *argv[])
         }
 
         // All QEMUs done. Report the aggregate status to AFL and wait for a new fork command.
-        DBG_PRINTF("All QEMUs done, reporting status %#x to AFL\n", aggregate_status);
+        assert(WIFEXITED(aggregate_status) || WIFSIGNALED(aggregate_status));
+        if (WIFEXITED(aggregate_status))
+            DBG_PRINTF("All QEMUs done, reporting status %#x to AFL (regular exit(%d))\n", aggregate_status, WEXITSTATUS(aggregate_status));
+        else DBG_PRINTF("All QEMUs done, reporting status %#x to AFL (KILLED BY SIGNAL %d)\n", aggregate_status, WTERMSIG(aggregate_status));
         VE(write(ST_FD, &aggregate_status, 4) == 4);
     }
 }
