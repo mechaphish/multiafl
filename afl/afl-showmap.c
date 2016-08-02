@@ -59,7 +59,7 @@ _Static_assert(FORKSRV_FD == 198, "Altered FORKSRV_FD? fakeforksrv has it hardco
 #define V(x) if (unlikely(!(x)))   errx(-9, __FILE__ ":" VAL_TO_STR(__LINE__) " %s, it's not %s", __PRETTY_FUNCTION__, #x)
 #define VE(x) if (unlikely(!(x))) err(-9, __FILE__ ":" VAL_TO_STR(__LINE__) " %s, it's not %s", __PRETTY_FUNCTION__, #x)
 #ifdef DEBUG
-# define DBG_PRINTF(...) fprintf(stderr, "RUNNER: " __VA_ARGS__)
+# define DBG_PRINTF(...) fprintf(stderr, "SHOWMAP: " __VA_ARGS__)
 #else
 # define DBG_PRINTF(...) do { ; } while(0)
 #endif
@@ -299,19 +299,21 @@ static void run_target(char** argv) {
 
 
   DBG_PRINTF("Waiting for the status report...\n");
-  if (read(st, &status, 4) != 4)
+  if ((read(st, &status, 4) != 4) && !child_timed_out)
       err(-10, "Could not read the status report from fakeforksrv! errno, if not just exit");
-  if (WIFEXITED(status)) {
-      DBG_PRINTF("Regular exit(%d)\n", WEXITSTATUS(status));
-  } else {
-      V(WIFSIGNALED(status));
-      if (WTERMSIG(status) == SIGKILL) {
-          DBG_PRINTF("reported a SIGKILL!\n");
-      } else if (WTERMSIG(status) == SIGUSR2) {
-          DBG_PRINTF("!!! ERROR: reported a SIGUSR2! (should be hidden!)\n");
-      } else DBG_PRINTF("reported signal %d\n", WTERMSIG(status));
+  if (!child_timed_out) {
+      if (WIFEXITED(status)) {
+          DBG_PRINTF("Regular exit(%d)\n", WEXITSTATUS(status));
+      } else {
+          V(WIFSIGNALED(status));
+          if (WTERMSIG(status) == SIGKILL) {
+              DBG_PRINTF("reported a SIGKILL!\n");
+          } else if (WTERMSIG(status) == SIGUSR2) {
+              DBG_PRINTF("!!! ERROR: reported a SIGUSR2! (should be hidden!)\n");
+          } else DBG_PRINTF("reported signal %d\n", WTERMSIG(status));
+      }
+      killpg(-forksrv_pid, SIGKILL);
   }
-  killpg(-forksrv_pid, SIGTERM);
 
   child_pid = 0;
   it.it_value.tv_sec = 0;
