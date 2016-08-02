@@ -282,7 +282,6 @@ static void run_target(char** argv) {
   VE(write(ctl, &msg, 4) == 4);
 
   DBG_PRINTF("Waiting for the fork() pid report...\n");
-  pid_t child_pid;
   VE(read(st, &child_pid, 4) == 4);
   DBG_PRINTF("fakeforksrv reports (QEMU CB_0) pid %d...\n", child_pid);
 
